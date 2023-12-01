@@ -1,0 +1,219 @@
+---
+title: "creating .csv's of used and available points for each habitat selection analysis"
+author: "Jessalyn Ayars"
+date: "2/7/2022"
+output: pdf_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(here)
+library(lubridate)
+library(sf)
+library(raster) # masks select
+library(amt) # masks filter
+source(here("code", "misc_functions.R")) 
+# loading data
+gps_data <- load_gps_data()
+```
+
+
+## rsf
+```{r}
+gps_data.rsf <- gps_data %>%
+  dplyr::filter(which.xsf == "rsf") 
+```
+
+### making into tracks by animal/year 
+```{r}
+rsf.nested <- gps_data.rsf %>%
+  group_by(Year, Territory) %>%
+  mutate(n_ap = 10*n()) %>% # number of available points needed per owl-year
+  group_by(Year, usfws_id, Territory, n_ap) %>%
+  nest()
+
+set.seed(223)
+rsf.nested.track <- rsf.nested %>%
+    mutate(points = map(data, function(x) 
+      x %>%
+        as_Spatial() %>%
+        make_track(long_utm, lat_utm) %>%
+        random_points(hr_kde(.), presence = ., n = n_ap)
+      ))
+
+rsf.avail <- rsf.nested.track %>%
+  unnest(cols = points) %>%
+  ungroup() 
+
+rsf.avail <- rsf.avail %>%
+  mutate(index = 1:nrow(rsf.avail))
+```
+
+### removing available points in salvage logged areas for 2015
+```{r}
+sl <- st_read(here("data-private", "20190411_Anu_digitized_salvage_logging_2016NAIP_erase_GNNopen_unburned.shp")) %>%
+  st_transform(32610) %>%
+  st_union()
+territories <- st_read(here("data-private", "territory_polylgons.shp")) %>%
+  st_transform(32610) %>%
+  st_union()
+
+rsf.2015.bad <- rsf.avail %>%
+  dplyr::filter(Year == 2015) %>%
+  st_as_sf(coords = c("x_", "y_"), crs = 32610)
+rsf.2015.bad.2 <- rsf.2015.bad %>%
+  ungroup() %>%
+  mutate(in.sl = as.numeric(st_intersects(rsf.2015.bad, sl))) %>%
+  drop_na(in.sl)
+rsf.2015.bad.3 <- rsf.2015.bad %>%
+  ungroup() %>%
+  mutate(out.terr = as.numeric(st_intersects(rsf.2015.bad, territories))) %>%
+  filter(is.na(out.terr))
+  
+rsf.final <- anti_join(rsf.avail, rsf.2015.bad.2, by = "index") %>%
+  anti_join(rsf.2015.bad.3, by = "index") %>%
+  select(-index)
+table(rsf.final$Territory, rsf.final$case_) 
+```
+
+### adding distance to nest
+```{r}
+repro <- read_csv(here("Data", "output_data", "repro_cleaned.csv")) %>%
+  dplyr::select(Territory, Year, long_utm, lat_utm) %>%
+  st_as_sf(coords = c("long_utm", "lat_utm"), crs = 32610, remove = FALSE)
+
+rsf.final.2 <- rsf.final %>%
+  st_as_sf(coords = c("x_", "y_"), crs = 32610, remove = FALSE)
+
+rsf.final.3 <- slice(rsf.final.2, 0) %>%
+  mutate(dtn = NA)
+
+for (i in 1:nrow(repro)) {
+  gps.temp <- filter(rsf.final.2, Territory == repro$Territory[i] & Year == repro$Year[i]) %>%
+    mutate(dtn = as.numeric(st_distance(., repro$geometry[i])))
+  rsf.final.3 <- rbind(rsf.final.3, gps.temp)
+}
+```
+
+
+### writing to .csv
+```{r}
+rsf.final.3 %>%
+  as_tibble() %>%
+  dplyr::select(-geometry) %>%
+  write_csv(here("data-private", "gps_rsf.csv"))
+```
+
+
+## hourly ssf
+
+### filtering for data
+```{r}
+gps.ssf.hr <- gps_data %>%
+  dplyr::filter(which.xsf == "ssf.hr")
+```
+
+### adding random steps
+```{r}
+# step length check
+ssf.hr.sld <- gps.ssf.hr %>%
+  group_by(Year, usfws_id, Territory) %>%
+  nest() %>%
+  mutate(points = map(data, function(x)
+      x %>%
+        make_track(long_utm, lat_utm, datetime) %>%
+        track_resample(rate=minutes(60), tolerance = minutes(30)) %>%
+        steps_by_burst()
+  )) %>%
+  unnest(cols = points)
+
+ssf.hr.sld %>%
+  ggplot() +
+  geom_boxplot(aes(sl_)) # yeah um no
+quantile(ssf.hr.sld$sl_, c(.50, .75, .90, .95)) 
+
+# doing the official thing
+set.seed(223)
+ssf.avail <- gps.ssf.hr %>%
+  group_by(Year, usfws_id, Territory) %>%
+  nest() %>%
+  mutate(points = map(data, function(x)
+      x %>%
+        make_track(long_utm, lat_utm, datetime) %>%
+        track_resample(rate=minutes(60), tolerance = minutes(30)) %>%
+        steps_by_burst() %>% 
+        dplyr::filter(sl_ <= 930.50) %>% 
+        random_steps()
+  )) %>%
+  unnest(cols = points)
+ssf.avail %>%
+  ggplot() +
+  geom_boxplot(aes(sl_)) 
+```
+
+
+### write that .csv
+
+```{r}
+write_csv(ssf.avail, here("data-private", "gps_ssf_hr.csv"))
+```
+
+
+## minute-by-minute ssf
+
+### getting data
+
+```{r}
+gps.ssf.min <- gps_data %>%
+  dplyr::filter(which.xsf == "ssf.min")
+```
+
+### adding random steps
+```{r}
+# check step length distribution and cut outliers
+ssf.min.sld <- gps.ssf.min %>%
+  group_by(Year, usfws_id, Territory) %>%
+  nest() %>%
+  mutate(points = map(data, function(x)
+      x %>%
+        make_track(long_utm, lat_utm, datetime) %>%
+        track_resample(rate=seconds(120), tolerance = seconds(60)) %>% 
+        steps_by_burst()
+  )) %>%
+  unnest(cols = points)
+ssf.min.sld %>%
+  ggplot() +
+  geom_boxplot(aes(sl_))
+quantile(ssf.min.sld$sl_, c(.5, .75, .9, .95)) # 4/8/22: 90th %tile is 165.08
+
+
+set.seed(223)
+ssf.min.avail <- gps.ssf.min %>% 
+  group_by(Year, usfws_id, Territory) %>%
+  nest() %>%
+  mutate(points = map(data, function(x)
+      x %>%
+        make_track(long_utm, lat_utm, datetime) %>%
+        track_resample(rate=seconds(120), tolerance = seconds(60)) %>% 
+        steps_by_burst() %>% 
+        dplyr::filter(sl_ <= 165.08) %>%
+        random_steps()
+  )) %>%
+  unnest(cols = points)
+
+ssf.min.avail %>%
+  ggplot() +
+  geom_boxplot(aes(sl_))
+```
+
+
+### writing to .csv
+
+```{r}
+write_csv(ssf.min.avail, here("data-private", "gps_ssf_min.csv"))
+```
+
+
+

@@ -1,0 +1,252 @@
+---
+title: "attempted nesting models"
+author: "Jessalyn Ayars"
+date: "2022-09-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(here)
+library(tidyverse)
+library(lme4)
+library(broom)
+source(here("code", "misc_functions.R"))
+```
+
+### data
+```{r}
+rsf.data <- read_csv(here("data-public", "repro_rsf_covs.csv")) %>%
+  mutate(across(c(cc.60:sq.60, ppt.total, tmean.mean, nest.sdq), ~ as.numeric(scale(.x)), .names = "{.col}.scaled")) %>%
+  mutate(Year = as.factor(Year))
+ssf.hr.data <- read_csv(here("data-public", "repro_ssf_hr_covs.csv")) %>%
+  select(-aspect.0) %>%
+  mutate(across(c(cc.30:sq.30, ppt.total, tmean.mean, nest.sdq), ~ as.numeric(scale(.x)), .names = "{.col}.scaled")) %>%
+  mutate(Year = as.factor(Year))
+ssf.min.data <- read_csv(here("data-public", "repro_ssf_min_covs.csv")) %>%
+  select(-aspect.0) %>%
+  mutate(across(c(cc.60:sq.30, ppt.total, tmean.mean, nest.sdq), ~ as.numeric(scale(.x)), .names = "{.col}.scaled")) %>%
+  mutate(Year = as.factor(Year))
+```
+
+### functions
+- ssfs have Year, made a separate fxn for them
+```{r}
+join_rsf_results <- function (output, metric, index, model) {
+  output$Metric[index] <- metric
+  output$Intercept[index] <- coef(summary(model))[1,1]
+  output$Total.PPT[index] <- coef(summary(model))[2,1]
+  output$Total.PPT.Std.Err[index] <- coef(summary(model))[2,2]
+  output$Total.PPT.P[index] <- coef(summary(model))[2,4]
+  output$Mean.Temp[index] <- coef(summary(model))[3,1]
+  output$Mean.Temp.Std.Err[index] <- coef(summary(model))[3,2]
+  output$Mean.Temp.P[index] <- coef(summary(model))[3,4]
+  output$Nest.Topo[index] <- coef(summary(model))[4,1]
+  output$Nest.Topo.Std.Err[index] <- coef(summary(model))[4,2]
+  output$Nest.Topo.P[index] <-coef(summary(model))[4,4]
+  output$Est[index] <- coef(summary(model))[5,1]
+  output$Std.Err[index] <- coef(summary(model))[5,2]
+  output$P.base[index] <- coef(summary(model))[5,4]
+  output
+}
+
+join_ssf_results <- function (output, metric, index, model) {
+  output$Metric[index] <- metric
+  output$Year1[index] <- coef(summary(model))[1,1]
+  output$Year2[index] <- coef(summary(model))[2,1]
+  output$Total.PPT[index] <- coef(summary(model))[3,1]
+  output$Total.PPT.Std.Err[index] <- coef(summary(model))[3,2]
+  output$Total.PPT.P[index] <- coef(summary(model))[3,4]
+  output$Mean.Temp[index] <- coef(summary(model))[4,1]
+  output$Mean.Temp.Std.Err[index] <- coef(summary(model))[4,2]
+  output$Mean.Temp.P[index] <- coef(summary(model))[4,4]
+  output$Nest.Topo[index] <- coef(summary(model))[5,1]
+  output$Nest.Topo.Std.Err[index] <- coef(summary(model))[5,2]
+  output$Nest.Topo.P[index] <- coef(summary(model))[5,4]
+  output$Est[index] <- coef(summary(model))[6,1]
+  output$Std.Err[index] <- coef(summary(model))[6,2]
+  output$P.base[index] <- coef(summary(model))[6,4]
+  output
+}
+```
+
+
+### rsf
+
+#### visual checks of collinearity
+- control covariates are not collinear with covariates of interest
+```{r}
+pairs(rsf.data[20:32], lower.panel = panel.spearman)
+```
+
+#### models
+```{r}
+nest.rsf.cc <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + cc.60.scaled, family = "binomial", data = rsf.data)
+summary(nest.rsf.cc)
+
+nest.rsf.cc.sq <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + cc.60.sq.scaled, family = "binomial", data = rsf.data)  
+summary(nest.rsf.cc.sq)
+
+nest.rsf.ch <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + ch.30.scaled, family = "binomial", data = rsf.data)
+summary(nest.rsf.ch)
+
+nest.rsf.ch.sq <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + ch.30.sq.scaled, family = "binomial", data = rsf.data)  
+summary(nest.rsf.ch.sq)
+
+nest.rsf.lfd <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + lfd.500.scaled, family = "binomial", data = rsf.data)  
+summary(nest.rsf.lfd)
+
+nest.rsf.s10z <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + s10z.120.scaled, family = "binomial", data = rsf.data)  
+summary(nest.rsf.s10z)
+
+nest.rsf.sci <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sci.30.scaled, family = "binomial", data = rsf.data)  
+summary(nest.rsf.sci)
+
+nest.rsf.sdq <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sdq.60.scaled, family = "binomial", data = rsf.data)  
+summary(nest.rsf.sdq) 
+
+nest.rsf.sf <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sf.60.scaled, family = "binomial", data = rsf.data)  
+summary(nest.rsf.sf) # fitted probabilities 0 or 1 occurred (not much to be done)
+
+nest.rsf.sq <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sq.60.scaled, family = "binomial", data = rsf.data)  
+summary(nest.rsf.sq)
+```
+
+#### write results
+```{r}
+nest.rsf <- tibble(T.scale = rep("RSF", 10), Repro = rep("nest", 10), Metric = rep(NA, 10), Intercept = rep(NA, 10), Total.PPT = rep(NA, 10), Total.PPT.Std.Err = rep(NA, 10), Total.PPT.P = rep(NA, 10), Mean.Temp = rep(NA, 10), Mean.Temp.Std.Err = rep(NA, 10), Mean.Temp.P = rep(NA, 10), Nest.Topo = rep(NA, 10), Nest.Topo.Std.Err = rep(NA, 10), Nest.Topo.P = rep(NA, 10), Est = rep(NA, 10), Std.Err = rep(NA, 10), P.base = rep(NA, 10))
+nest.rsf <- join_rsf_results(nest.rsf, "cc.60.sq", 2, nest.rsf.cc.sq)
+nest.rsf <- join_rsf_results(nest.rsf, "cc.60", 1, nest.rsf.cc)
+nest.rsf <- join_rsf_results(nest.rsf, "ch.30", 3, nest.rsf.ch)
+nest.rsf <- join_rsf_results(nest.rsf, "ch.30.sq", 4, nest.rsf.ch.sq)
+nest.rsf <- join_rsf_results(nest.rsf, "lfd.500", 5, nest.rsf.lfd)
+nest.rsf <- join_rsf_results(nest.rsf, "s10z.120", 6, nest.rsf.s10z)
+nest.rsf <- join_rsf_results(nest.rsf, "sci.30", 7, nest.rsf.sci)
+nest.rsf <- join_rsf_results(nest.rsf, "sdq.60", 8, nest.rsf.sdq)
+nest.rsf <- join_rsf_results(nest.rsf, "sf.60", 9, nest.rsf.sf)
+nest.rsf <- join_rsf_results(nest.rsf, "sq.60", 10, nest.rsf.sq)
+
+# p adjustment
+nest.rsf$P.base
+nest.rsf$P.fdr <- p.adjust(nest.rsf$P.base, method = "fdr")
+nest.rsf$P.fdr 
+
+# results out
+write_csv(nest.rsf, here("results", "nest_rsf.csv"))
+```
+
+
+### hourly ssf
+#### models
+```{r}
+nest.ssf.hr.cc <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + cc.30.scaled, family = "binomial", data = ssf.hr.data)
+summary(nest.ssf.hr.cc)
+
+nest.ssf.hr.cc.sq <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + cc.30.sq.scaled, family = "binomial", data = ssf.hr.data)  
+summary(nest.ssf.hr.cc.sq)
+
+nest.ssf.hr.ch <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + ch.30.scaled, family = "binomial", data = ssf.hr.data)
+summary(nest.ssf.hr.ch)
+
+nest.ssf.hr.ch.sq <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + ch.30.sq.scaled, family = "binomial", data = ssf.hr.data)  
+summary(nest.ssf.hr.ch.sq)
+
+nest.ssf.hr.lfd <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + lfd.120.scaled, family = "binomial", data = ssf.hr.data)  
+summary(nest.ssf.hr.lfd)
+
+nest.ssf.hr.s10z <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + s10z.60.scaled, family = "binomial", data = ssf.hr.data)
+summary(nest.ssf.hr.s10z) 
+
+nest.ssf.hr.sci <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sci.60.scaled, family = "binomial", data = ssf.hr.data)  
+summary(nest.ssf.hr.sci)
+
+nest.ssf.hr.sdq <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sdq.30.scaled, family = "binomial", data = ssf.hr.data)  
+summary(nest.ssf.hr.sdq)
+
+nest.ssf.hr.sf <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sf.30.scaled, family = "binomial", data = ssf.hr.data)  
+summary(nest.ssf.hr.sf) 
+
+nest.ssf.hr.sq <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sq.30.scaled, family = "binomial", data = ssf.hr.data)  
+summary(nest.ssf.hr.cc.sq)
+```
+
+#### hourly results output
+```{r}
+nest.ssf.hr <- tibble(T.scale = rep("SSF_hr", 10), Repro = rep("nest", 10), Metric = rep(NA, 10), Year1 = rep(NA, 10), Year2 = rep(NA, 10), Total.PPT = rep(NA, 10), Total.PPT.Std.Err = rep(NA, 10), Total.PPT.P = rep(NA, 10), Mean.Temp = rep(NA, 10), Mean.Temp.Std.Err = rep(NA, 10), Mean.Temp.P = rep(NA, 10), Nest.Topo = rep(NA, 10), Nest.Topo.Std.Err = rep(NA, 10), Nest.Topo.P = rep(NA, 10), Est = rep(NA, 10), Std.Err = rep(NA, 10), P.base = rep(NA, 10), P.fdr = rep(NA, 10))
+
+nest.ssf.hr <- join_ssf_results(nest.ssf.hr, "cc.30", 1, nest.ssf.hr.cc)
+nest.ssf.hr <- join_ssf_results(nest.ssf.hr, "cc.30.sq", 2, nest.ssf.hr.cc.sq)
+nest.ssf.hr <- join_ssf_results(nest.ssf.hr, "ch.30", 3, nest.ssf.hr.ch)
+nest.ssf.hr <- join_ssf_results(nest.ssf.hr, "ch.30.sq", 4, nest.ssf.hr.ch.sq)
+nest.ssf.hr <- join_ssf_results(nest.ssf.hr, "lfd.120", 5, nest.ssf.hr.lfd)
+nest.ssf.hr <- join_ssf_results(nest.ssf.hr, "s10z.60", 6, nest.ssf.hr.s10z)
+nest.ssf.hr <- join_ssf_results(nest.ssf.hr, "sci.60", 7, nest.ssf.hr.sci)
+nest.ssf.hr <- join_ssf_results(nest.ssf.hr, "sdq.30", 8, nest.ssf.hr.sdq)
+nest.ssf.hr <- join_ssf_results(nest.ssf.hr, "sf.30", 9, nest.ssf.hr.sf)
+nest.ssf.hr <- join_ssf_results(nest.ssf.hr, "sq.30", 10, nest.ssf.hr.sq)
+
+# adjustment
+nest.ssf.hr$P.base
+nest.ssf.hr$P.fdr <- p.adjust(nest.ssf.hr$P.base, method = "fdr") 
+nest.ssf.hr$P.fdr
+
+# results out
+write_csv(nest.ssf.hr, here("results", "nest_ssf-hr.csv"))
+```
+
+
+### mxm ssf
+```{r}
+nest.ssf.min.cc <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + cc.60.scaled, family = "binomial", data = ssf.min.data)
+summary(nest.ssf.min.cc)
+
+nest.ssf.min.cc.sq <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + cc.60.sq.scaled, family = "binomial", data = ssf.min.data)  
+summary(nest.ssf.min.cc.sq)
+
+nest.ssf.min.ch <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + ch.60.scaled, family = "binomial", data = ssf.min.data)
+summary(nest.ssf.min.ch)
+
+nest.ssf.min.ch.sq <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + ch.60.sq.scaled, family = "binomial", data = ssf.min.data)  
+summary(nest.ssf.min.ch.sq)
+
+nest.ssf.min.lfd <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + lfd.300.scaled, family = "binomial", data = ssf.min.data)  
+summary(nest.ssf.min.lfd)
+
+nest.ssf.min.s10z <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + s10z.60.scaled, family = "binomial", data = ssf.min.data)
+summary(nest.ssf.min.s10z) 
+
+nest.ssf.min.sci <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sci.60.scaled, family = "binomial", data = ssf.min.data)  
+summary(nest.ssf.min.sci)
+
+nest.ssf.min.sdq <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sdq.30.scaled, family = "binomial", data = ssf.min.data)  
+summary(nest.ssf.min.sdq)
+
+nest.ssf.min.sf <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sf.60.scaled, family = "binomial", data = ssf.min.data)  
+summary(nest.ssf.min.sf) 
+
+nest.ssf.min.sq <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sq.30.scaled, family = "binomial", data = ssf.min.data)  
+summary(nest.ssf.min.cc.sq)
+```
+
+#### results out
+```{r}
+nest.ssf.min <- tibble(T.scale = rep("SSF_min", 10), Repro = rep("nest", 10), Metric = rep(NA, 10), Year1 = rep(NA, 10), Year2 = rep(NA, 10), Total.PPT = rep(NA, 10), Total.PPT.Std.Err = rep(NA, 10), Total.PPT.P = rep(NA, 10), Mean.Temp = rep(NA, 10), Mean.Temp.Std.Err = rep(NA, 10), Mean.Temp.P = rep(NA, 10), Nest.Topo = rep(NA, 10), Nest.Topo.Std.Err = rep(NA, 10), Nest.Topo.P = rep(NA, 10), Est = rep(NA, 10), Std.Err = rep(NA, 10), P.base = rep(NA, 10), P.fdr = rep(NA, 10))
+
+nest.ssf.min <- join_ssf_results(nest.ssf.min, "cc.60", 1, nest.ssf.min.cc)
+nest.ssf.min <- join_ssf_results(nest.ssf.min, "cc.60.sq", 2, nest.ssf.min.cc.sq)
+nest.ssf.min <- join_ssf_results(nest.ssf.min, "ch.60", 3, nest.ssf.min.ch)
+nest.ssf.min <- join_ssf_results(nest.ssf.min, "ch.60.sq", 4, nest.ssf.min.ch.sq)
+nest.ssf.min <- join_ssf_results(nest.ssf.min, "lfd.300", 5, nest.ssf.min.lfd)
+nest.ssf.min <- join_ssf_results(nest.ssf.min, "s10z.60", 6, nest.ssf.min.s10z)
+nest.ssf.min <- join_ssf_results(nest.ssf.min, "sci.60", 7, nest.ssf.min.sci)
+nest.ssf.min <- join_ssf_results(nest.ssf.min, "sdq.30", 8, nest.ssf.min.sdq)
+nest.ssf.min <- join_ssf_results(nest.ssf.min, "sf.60", 9, nest.ssf.min.sf)
+nest.ssf.min <- join_ssf_results(nest.ssf.min, "sq.30", 10, nest.ssf.min.sq)
+
+# adjustment
+nest.ssf.min$P.base
+nest.ssf.min$P.fdr <- p.adjust(nest.ssf.min$P.base, method = "fdr")
+nest.ssf.min$P.fdr
+
+write_csv(nest.ssf.min, here("results", "nest_ssf-min.csv"))
+```

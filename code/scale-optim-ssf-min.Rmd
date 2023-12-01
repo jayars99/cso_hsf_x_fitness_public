@@ -1,0 +1,394 @@
+---
+title: "multi-scale optimization for minute-ly SSF"
+author: "Jessalyn Ayars"
+date: "2022-08-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(here)
+library(tidyverse)
+library(glmmTMB)
+```
+
+goal: get it to converge across all scales, no matter how simple the model has to be
+1. switch optimizers
+2. reduce size of lfv
+3. don't fix variance
+
+### data
+```{r}
+ssf.min.scales <- read_csv(here("data-public", "gps_ssf_min_scales.csv"))  %>%
+  mutate(across(cc.0:sq.60, ~ as.numeric(scale(.x)))) %>%
+  mutate(id = str_c(Territory, ".", Year)) %>%
+  mutate(step.id.id = str_c(id, ".", step_id_))
+```
+
+## models
+
+goal: get it to converge across all scales, no matter how simple the model has to be
+1. switch optimizers
+2. reduce size of lfv
+3. don't fix variance
+4. drop random effects
+
+### canopy cover
+```{r}
+cc.0 = glmmTMB(case_ ~ cc.0 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+cc.0$parameters$theta[1] = log(1e3) 
+cc.0$mapArg = list(theta=factor(c(NA, 1))) 
+cc.0 = glmmTMB:::fitTMB(cc.0) 
+summary(cc.0) 
+
+cc.30 = glmmTMB(case_ ~ cc.30 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+cc.30$parameters$theta[1] = log(1e3) 
+cc.30$mapArg = list(theta=factor(c(NA, 1))) 
+cc.30 = glmmTMB:::fitTMB(cc.30) 
+summary(cc.30) 
+
+cc.60 = glmmTMB(case_ ~ cc.60 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+cc.60$parameters$theta[1] = log(1e3) 
+cc.60$mapArg = list(theta=factor(c(NA, 1))) 
+cc.60 = glmmTMB:::fitTMB(cc.60) 
+summary(cc.60) 
+
+cc.120 = glmmTMB(case_ ~ cc.120 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+cc.120$parameters$theta[1] = log(1e3) 
+cc.120$mapArg = list(theta=factor(c(NA, 1))) 
+cc.120 = glmmTMB:::fitTMB(cc.120) 
+summary(cc.120) 
+
+cc.300 = glmmTMB(case_ ~ cc.300 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+cc.300$parameters$theta[1] = log(1e3) 
+cc.300$mapArg = list(theta=factor(c(NA, 1))) 
+cc.300 = glmmTMB:::fitTMB(cc.300) 
+summary(cc.300) 
+
+cc.500 = glmmTMB(case_ ~ cc.500 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+cc.500$parameters$theta[1] = log(1e3) 
+cc.500$mapArg = list(theta=factor(c(NA, 1))) 
+cc.500 = glmmTMB:::fitTMB(cc.500) 
+summary(cc.500) 
+
+anova(cc.0, cc.30, cc.60, cc.120, cc.300, cc.500) # 60
+```
+
+### canopy height
+```{r}
+ch.0 = glmmTMB(case_ ~ ch.0 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+ch.0$parameters$theta[1] = log(1e3) 
+ch.0$mapArg = list(theta=factor(c(NA, 1))) 
+ch.0 = glmmTMB:::fitTMB(ch.0) 
+summary(ch.0) 
+
+ch.30 = glmmTMB(case_ ~ ch.30 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+ch.30$parameters$theta[1] = log(1e3) 
+ch.30$mapArg = list(theta=factor(c(NA, 1))) 
+ch.30 = glmmTMB:::fitTMB(ch.30) 
+summary(ch.30) 
+
+ch.60 = glmmTMB(case_ ~ ch.60 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+ch.60$parameters$theta[1] = log(1e3) 
+ch.60$mapArg = list(theta=factor(c(NA, 1))) 
+ch.60 = glmmTMB:::fitTMB(ch.60) 
+summary(ch.60) 
+
+ch.120 = glmmTMB(case_ ~ ch.120 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+ch.120$parameters$theta[1] = log(1e3) 
+ch.120$mapArg = list(theta=factor(c(NA, 1))) 
+ch.120 = glmmTMB:::fitTMB(ch.120) 
+summary(ch.120) 
+
+ch.300 = glmmTMB(case_ ~ ch.300 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+ch.300$parameters$theta[1] = log(1e3) 
+ch.300$mapArg = list(theta=factor(c(NA, 1))) 
+ch.300 = glmmTMB:::fitTMB(ch.300) 
+summary(ch.300) 
+
+ch.500 = glmmTMB(case_ ~ ch.500 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+ch.500$parameters$theta[1] = log(1e3) 
+ch.500$mapArg = list(theta=factor(c(NA, 1))) 
+ch.500 = glmmTMB:::fitTMB(ch.500) 
+summary(ch.500) 
+
+anova(ch.0, ch.30, ch.60, ch.120, ch.300, ch.500) # 60
+```
+
+### lfd
+```{r}
+lfd.0 = glmmTMB(case_ ~ lfd.0 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+lfd.0$parameters$theta[1] = log(1e3) 
+lfd.0$mapArg = list(theta=factor(c(NA, 1))) 
+lfd.0 = glmmTMB:::fitTMB(lfd.0) 
+summary(lfd.0) 
+
+lfd.30 = glmmTMB(case_ ~ lfd.30 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+lfd.30$parameters$theta[1] = log(1e3) 
+lfd.30$mapArg = list(theta=factor(c(NA, 1))) 
+lfd.30 = glmmTMB:::fitTMB(lfd.30) 
+summary(lfd.30) 
+
+lfd.60 = glmmTMB(case_ ~ lfd.60 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+lfd.60$parameters$theta[1] = log(1e3) 
+lfd.60$mapArg = list(theta=factor(c(NA, 1))) 
+lfd.60 = glmmTMB:::fitTMB(lfd.60) 
+summary(lfd.60) 
+
+lfd.120 = glmmTMB(case_ ~ lfd.120 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+lfd.120$parameters$theta[1] = log(1e3) 
+lfd.120$mapArg = list(theta=factor(c(NA, 1))) 
+lfd.120 = glmmTMB:::fitTMB(lfd.120) 
+summary(lfd.120) 
+
+lfd.300 = glmmTMB(case_ ~ lfd.300 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+lfd.300$parameters$theta[1] = log(1e3) 
+lfd.300$mapArg = list(theta=factor(c(NA, 1))) 
+lfd.300 = glmmTMB:::fitTMB(lfd.300) 
+summary(lfd.300) 
+
+lfd.500 = glmmTMB(case_ ~ lfd.500 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+lfd.500$parameters$theta[1] = log(1e3) 
+lfd.500$mapArg = list(theta=factor(c(NA, 1))) 
+lfd.500 = glmmTMB:::fitTMB(lfd.500) 
+summary(lfd.500) 
+
+anova(lfd.0, lfd.30, lfd.60, lfd.120, lfd.300, lfd.500) # 300 is best
+```
+
+### s10z
+```{r}
+s10z.30 = glmmTMB(case_ ~ s10z.30 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+s10z.30$parameters$theta[1] = log(1e3) 
+s10z.30$mapArg = list(theta=factor(c(NA, 1))) 
+s10z.30 = glmmTMB:::fitTMB(s10z.30) 
+summary(s10z.30) 
+
+s10z.60 = glmmTMB(case_ ~ s10z.60 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+s10z.60$parameters$theta[1] = log(1e3) 
+s10z.60$mapArg = list(theta=factor(c(NA, 1))) 
+s10z.60 = glmmTMB:::fitTMB(s10z.60) 
+summary(s10z.60) 
+
+s10z.120 = glmmTMB(case_ ~ s10z.120 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+s10z.120$parameters$theta[1] = log(1e3) 
+s10z.120$mapArg = list(theta=factor(c(NA, 1))) 
+s10z.120 = glmmTMB:::fitTMB(s10z.120) 
+summary(s10z.120) 
+
+s10z.300 = glmmTMB(case_ ~ s10z.300 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+s10z.300$parameters$theta[1] = log(1e3) 
+s10z.300$mapArg = list(theta=factor(c(NA, 1))) 
+s10z.300 = glmmTMB:::fitTMB(s10z.300) 
+summary(s10z.300) 
+
+s10z.500 = glmmTMB(case_ ~ s10z.500 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+s10z.500$parameters$theta[1] = log(1e3) 
+s10z.500$mapArg = list(theta=factor(c(NA, 1))) 
+s10z.500 = glmmTMB:::fitTMB(s10z.500) 
+summary(s10z.500) 
+
+anova(s10z.30, s10z.60, s10z.120, s10z.300, s10z.500) # 60
+```
+
+### sci
+```{r}
+sci.30 = glmmTMB(case_ ~ sci.30 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sci.30$parameters$theta[1] = log(1e3) 
+sci.30$mapArg = list(theta=factor(c(NA, 1))) 
+sci.30 = glmmTMB:::fitTMB(sci.30) 
+summary(sci.30) 
+
+sci.60 = glmmTMB(case_ ~ sci.60 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sci.60$parameters$theta[1] = log(1e3) 
+sci.60$mapArg = list(theta=factor(c(NA, 1))) 
+sci.60 = glmmTMB:::fitTMB(sci.60) 
+summary(sci.60) 
+
+sci.120 = glmmTMB(case_ ~ sci.120 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sci.120$parameters$theta[1] = log(1e3) 
+sci.120$mapArg = list(theta=factor(c(NA, 1))) 
+sci.120 = glmmTMB:::fitTMB(sci.120) 
+summary(sci.120) 
+
+sci.300 = glmmTMB(case_ ~ sci.300 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sci.300$parameters$theta[1] = log(1e3) 
+sci.300$mapArg = list(theta=factor(c(NA, 1))) 
+sci.300 = glmmTMB:::fitTMB(sci.300) 
+summary(sci.300) 
+
+sci.500 = glmmTMB(case_ ~ sci.500 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sci.500$parameters$theta[1] = log(1e3) 
+sci.500$mapArg = list(theta=factor(c(NA, 1))) 
+sci.500 = glmmTMB:::fitTMB(sci.500) 
+summary(sci.500) 
+
+anova(sci.30, sci.60, sci.120, sci.300, sci.500) # 60
+```
+
+### sdq
+```{r}
+sdq.30 = glmmTMB(case_ ~ sdq.30 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sdq.30$parameters$theta[1] = log(1e3) 
+sdq.30$mapArg = list(theta=factor(c(NA, 1))) 
+sdq.30 = glmmTMB:::fitTMB(sdq.30) 
+summary(sdq.30) 
+
+sdq.60 = glmmTMB(case_ ~ sdq.60 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sdq.60$parameters$theta[1] = log(1e3) 
+sdq.60$mapArg = list(theta=factor(c(NA, 1))) 
+sdq.60 = glmmTMB:::fitTMB(sdq.60) 
+summary(sdq.60) 
+
+sdq.120 = glmmTMB(case_ ~ sdq.120 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sdq.120$parameters$theta[1] = log(1e3) 
+sdq.120$mapArg = list(theta=factor(c(NA, 1))) 
+sdq.120 = glmmTMB:::fitTMB(sdq.120) 
+summary(sdq.120) 
+
+sdq.300 = glmmTMB(case_ ~ sdq.300 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sdq.300$parameters$theta[1] = log(1e3) 
+sdq.300$mapArg = list(theta=factor(c(NA, 1))) 
+sdq.300 = glmmTMB:::fitTMB(sdq.300) 
+summary(sdq.300) 
+
+sdq.500 = glmmTMB(case_ ~ sdq.500 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sdq.500$parameters$theta[1] = log(1e3) 
+sdq.500$mapArg = list(theta=factor(c(NA, 1))) 
+sdq.500 = glmmTMB:::fitTMB(sdq.500) 
+summary(sdq.500) 
+
+anova(sdq.30, sdq.60, sdq.120, sdq.300, sdq.500) # 30
+```
+
+### sf
+```{r}
+sf.0 = glmmTMB(case_ ~ sf.0 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sf.0$parameters$theta[1] = log(1e3) 
+sf.0$mapArg = list(theta=factor(c(NA, 1))) 
+sf.0 = glmmTMB:::fitTMB(sf.0) 
+summary(sf.0) 
+
+sf.30 = glmmTMB(case_ ~ sf.30 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sf.30$parameters$theta[1] = log(1e3) 
+sf.30$mapArg = list(theta=factor(c(NA, 1))) 
+sf.30 = glmmTMB:::fitTMB(sf.30) 
+summary(sf.30) 
+
+sf.60 = glmmTMB(case_ ~ sf.60 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sf.60$parameters$theta[1] = log(1e3) 
+sf.60$mapArg = list(theta=factor(c(NA, 1))) 
+sf.60 = glmmTMB:::fitTMB(sf.60) 
+summary(sf.60) 
+
+sf.120 = glmmTMB(case_ ~ sf.120 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sf.120$parameters$theta[1] = log(1e3) 
+sf.120$mapArg = list(theta=factor(c(NA, 1))) 
+sf.120 = glmmTMB:::fitTMB(sf.120) 
+summary(sf.120) 
+
+sf.300 = glmmTMB(case_ ~ sf.300 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sf.300$parameters$theta[1] = log(1e3) 
+sf.300$mapArg = list(theta=factor(c(NA, 1))) 
+sf.300 = glmmTMB:::fitTMB(sf.300) 
+summary(sf.300) 
+
+sf.500 = glmmTMB(case_ ~ sf.500 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sf.500$parameters$theta[1] = log(1e3) 
+sf.500$mapArg = list(theta=factor(c(NA, 1))) 
+sf.500 = glmmTMB:::fitTMB(sf.500) 
+summary(sf.500) 
+
+anova(sf.0, sf.30, sf.60, sf.120, sf.300, sf.500) # 60
+```
+
+### sq
+```{r}
+sq.30 = glmmTMB(case_ ~ sq.30 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sq.30$parameters$theta[1] = log(1e3) 
+sq.30$mapArg = list(theta=factor(c(NA, 1))) 
+sq.30 = glmmTMB:::fitTMB(sq.30) 
+summary(sq.30) 
+
+sq.60 = glmmTMB(case_ ~ sq.60 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sq.60$parameters$theta[1] = log(1e3) 
+sq.60$mapArg = list(theta=factor(c(NA, 1))) 
+sq.60 = glmmTMB:::fitTMB(sq.60) 
+summary(sq.60) 
+
+sq.120 = glmmTMB(case_ ~ sq.120 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sq.120$parameters$theta[1] = log(1e3) 
+sq.120$mapArg = list(theta=factor(c(NA, 1))) 
+sq.120 = glmmTMB:::fitTMB(sq.120) 
+summary(sq.120) 
+
+sq.300 = glmmTMB(case_ ~ sq.300 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sq.300$parameters$theta[1] = log(1e3) 
+sq.300$mapArg = list(theta=factor(c(NA, 1))) 
+sq.300 = glmmTMB:::fitTMB(sq.300) 
+summary(sq.300) 
+
+sq.500 = glmmTMB(case_ ~ sq.500 + (1|step.id.id) + (1|id), 
+                       family=poisson, data= ssf.min.scales, doFit=FALSE) 
+sq.500$parameters$theta[1] = log(1e3) 
+sq.500$mapArg = list(theta=factor(c(NA, 1))) 
+sq.500 = glmmTMB:::fitTMB(sq.500) 
+summary(sq.500) 
+
+anova(sq.30, sq.60, sq.120, sq.300, sq.500) # 30
+```
+
+
+## data set for official hourly SSF modeling
+```{r}
+ssf.min.final <- read_csv(here("data-public", "gps_ssf_min_scales.csv")) %>%
+  dplyr::select(Territory, usfws_id, Year, burst_, case_, sl_, ta_, t1_, t2_, dt_, step_id_, cc.60, ch.60, lfd.300, s10z.60, sci.60, sdq.30, sf.60, sq.30) %>%
+  mutate(across(cc.60:sq.30, ~ as.numeric(scale(.x)), .names = "{.col}.scaled")) %>%
+  mutate(id = str_c(Territory, ".", Year)) %>%
+  mutate(step.id.id = str_c(id, ".", step_id_)) 
+
+write_csv(ssf.min.final, here("data-public", "ssf_min_final.csv"))
+```

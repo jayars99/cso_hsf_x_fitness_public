@@ -1,0 +1,612 @@
+---
+title: "managing CHTC jobs, R side"
+author: "Jessalyn Ayars"
+date: '2022-07-22'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(here)
+```
+
+## 2015 RSF data
+### jobs list
+```{r}
+rsf.2015 <- read_csv(here("data-private", "gps_rsf.csv")) %>%
+  filter(Year == 2015)
+rsf.2015.jobs <- tibble(r.file = c("cfo_surfacefuels_summer_2016.tif", "cfo_ladderfueldensity_summer_2016.tif", "cfo_canopycover_summer_2016.tif", "cfo_canopyheight_summer_2016.tif", "snb_aspect.tif", "cfo_canopyheight_summer_2016.tif", "cfo_canopyheight_summer_2016.tif", "cfo_canopyheight_summer_2016.tif", "cfo_canopyheight_summer_2016.tif"), 
+                      metric = c("mean", "mean", "mean", "mean", "mean", "sq", "sdq", "s10z", "sci"),
+                      shortname = c("sf", "lfd", "cc", "ch", "aspect", "sq", "sdq", "s10z", "sci"),
+                      scale.0 = 0, scale.30 = 30, scale.60 = 60, scale.120 = 120, scale.300 = 300, scale.500 = 500) %>%
+  pivot_longer(cols = scale.0:scale.500, values_to = "scale", names_to = NULL)
+
+rsf.2015.jobs.2 <- rsf.2015.jobs %>% 
+  mutate(set = NA) %>%
+  slice(0)
+
+for (i in 1:36) { 
+  temp.jobs <- rsf.2015.jobs %>%
+    mutate(set = i) 
+  rsf.2015.jobs.2 <- rbind(rsf.2015.jobs.2, temp.jobs)
+}
+
+write_csv(rsf.2015.jobs.2, here("chtc", "rsf_2015.txt"), col_names = F)
+```
+
+### checking which are missing
+```{r}
+# list of output files to compare to: 
+rsf.2015.jobs.2 <- read_csv(here("chtc", "rsf_2015.txt"), col_names = F)
+final.files <- tibble()
+
+for (i in 1:nrow(rsf.2015.jobs.2)) {
+  final.files <- rbind(final.files, str_c("rsf_2015_",
+                                          rsf.2015.jobs.2[i, 3], "_",
+                                          rsf.2015.jobs.2[i, 4], "_",
+                                          rsf.2015.jobs.2[i, 5], ".csv"))
+}
+
+files <- list.files(pattern = "csv", here("chtc", "rsf_2015")) 
+files.check <- as_tibble(files)
+final.files <- final.files %>%
+  rename(value = X.rsf_2015_sf_0_1.csv.)
+
+# check which are missing
+missing <- final.files %>%
+  anti_join(files.check, by = "value") # no more!
+jobs.left <- cbind(rsf.2015.jobs.2, final.files) %>%
+  semi_join(missing) %>%
+  select(-value)
+
+write_csv(jobs.left, here("chtc", "rsf_2015_e.txt"), col_names = F)
+```
+
+
+### merging
+files[(i-1)*216 + (k-1)*36 + j]
+- 60 is from n.scales x n.sets
+- 10 is n.sets
+```{r}
+files <- list.files(pattern = "csv", here("chtc", "rsf_2015")) 
+shortnames = c("aspect", "cc", "ch", "lfd", "s10z", "sci", "sdq", "sf", "sq")
+scales = c(0, 120, 30, 300, 500, 60)
+output <- read_csv(here("chtc", "rsf_2015", files[1])) %>% slice(0) %>%
+  mutate(var.scale = NA) 
+
+for (i in 1:9) { # indexes variables, don't change
+  varname = shortnames[i]
+  for (k in 1:6) { # number of scales
+    scale = scales[k]
+    for (j in 1:36) { # number of sets
+      temp <- read_csv(here("chtc", "rsf_2015", files[(i-1)*216 + (k-1)*36 + j])) %>%
+        mutate(var.scale = str_c(varname, ".", as.character(scale)))
+      output <- rbind(output, temp)
+    }
+  }
+}
+
+output.2 <- output %>%
+  pivot_wider(names_from = var.scale, values_from = newvar) # perfect!!!
+
+write_csv(output.2, here("data-private", "rsf_2015.csv"))
+```
+
+
+## 2016 RSF data
+
+### jobs list
+```{r}
+rsf.2016 <- read_csv(here("data-private", "gps_rsf.csv")) %>%
+  filter(Year == 2016) # 32 sets of 100
+
+rsf.2016.jobs <- tibble(r.file = c("cfo_surfacefuels_summer_2016.tif", "cfo_ladderfueldensity_summer_2016.tif", "cfo_canopycover_summer_2016.tif", "cfo_canopyheight_summer_2016.tif", "snb_aspect.tif", "cfo_canopyheight_summer_2016.tif", "cfo_canopyheight_summer_2016.tif", "cfo_canopyheight_summer_2016.tif", "cfo_canopyheight_summer_2016.tif"), 
+                      metric = c("mean", "mean", "mean", "mean", "mean", "sq", "sdq", "s10z", "sci"),
+                      shortname = c("sf", "lfd", "cc", "ch", "aspect", "sq", "sdq", "s10z", "sci"),
+                      scale.0 = 0, scale.30 = 30, scale.60 = 60, scale.120 = 120, scale.300 = 300, scale.500 = 500) %>%
+  pivot_longer(cols = scale.0:scale.500, values_to = "scale", names_to = NULL)
+
+rsf.2016.jobs.2 <- rsf.2016.jobs %>% 
+  mutate(set = NA) %>%
+  slice(0)
+
+for (i in 1:32) { 
+  temp.jobs <- rsf.2016.jobs %>%
+    mutate(set = i) 
+  rsf.2016.jobs.2 <- rbind(rsf.2016.jobs.2, temp.jobs)
+}
+
+write_csv(rsf.2016.jobs.2, here("chtc", "rsf_2016.txt"), col_names = F)
+```
+
+### checking which are missing
+```{r}
+# list of output files to compare to: 
+rsf.2016.jobs.2 <- read_csv(here("chtc", "rsf_2016.txt"), col_names = F)
+final.files <- tibble()
+
+for (i in 1:nrow(rsf.2016.jobs.2)) {
+  final.files <- rbind(final.files, str_c("rsf_2016_",
+                                          rsf.2016.jobs.2[i, 3], "_",
+                                          rsf.2016.jobs.2[i, 4], "_",
+                                          rsf.2016.jobs.2[i, 5], ".csv"))
+}
+
+files <- list.files(pattern = "csv", here("chtc", "rsf_2016")) 
+files.check <- as_tibble(files)
+final.files <- final.files %>%
+  rename(value = X.rsf_2016_sf_0_1.csv.)
+
+# check which are missing
+missing <- final.files %>%
+  anti_join(files.check, by = "value") # none!!
+```
+
+### merging
+files[(i-1)*x + (k-1)*y + j]
+- x is from n.scales x n.sets
+- y is n.sets
+```{r}
+files <- list.files(pattern = "csv", here("chtc", "rsf_2016")) 
+shortnames = c("aspect", "cc", "ch", "lfd", "s10z", "sci", "sdq", "sf", "sq")
+scales = c(0, 120, 30, 300, 500, 60)
+output <- read_csv(here("chtc", "rsf_2016", files[1])) %>% slice(0) %>%
+  mutate(var.scale = NA) 
+
+for (i in 1:9) { # indexes variables, don't change
+  varname = shortnames[i]
+  for (k in 1:6) { # number of scales
+    scale = scales[k]
+    for (j in 1:32) { # number of sets
+      temp <- read_csv(here("chtc", "rsf_2016", files[(i-1)*192 + (k-1)*32 + j])) %>%
+        mutate(var.scale = str_c(varname, ".", as.character(scale)))
+      output <- rbind(output, temp)
+    }
+  }
+}
+
+output.2 <- output %>%
+  pivot_wider(names_from = var.scale, values_from = newvar) 
+
+write_csv(output.2, here("data-private", "rsf_2016.csv"))
+```
+
+
+## 2017 RSF data
+
+### generating jobs
+```{r}
+rsf.2017 <- read_csv(here("data-private", "gps_rsf.csv")) %>%
+  filter(Year == 2017) # 59 sets of 100
+
+rsf.2017.jobs <- tibble(r.file = c("cfo_surfacefuels_summer_2017.tif", "cfo_ladderfueldensity_summer_2017.tif", "cfo_canopycover_summer_2017.tif", "cfo_canopyheight_summer_2017.tif", "snb_aspect.tif", "cfo_canopyheight_summer_2017.tif", "cfo_canopyheight_summer_2017.tif", "cfo_canopyheight_summer_2017.tif", "cfo_canopyheight_summer_2017.tif"), 
+                      metric = c("mean", "mean", "mean", "mean", "mean", "sq", "sdq", "s10z", "sci"),
+                      shortname = c("sf", "lfd", "cc", "ch", "aspect", "sq", "sdq", "s10z", "sci"),
+                      scale.0 = 0, scale.30 = 30, scale.60 = 60, scale.120 = 120, scale.300 = 300, scale.500 = 500) %>%
+  pivot_longer(cols = scale.0:scale.500, values_to = "scale", names_to = NULL)
+
+rsf.2017.jobs.2 <- rsf.2017.jobs %>% 
+  mutate(set = NA) %>%
+  slice(0)
+
+for (i in 1:59) { 
+  temp.jobs <- rsf.2017.jobs %>%
+    mutate(set = i) 
+  rsf.2017.jobs.2 <- rbind(rsf.2017.jobs.2, temp.jobs)
+}
+
+write_csv(rsf.2017.jobs.2, here("chtc", "rsf_2017.txt"), col_names = F)
+```
+
+### checking which are missing
+```{r}
+# list of output files to compare to: 
+rsf.2017.jobs.2 <- read_csv(here("chtc", "rsf_2017.txt"), col_names = F)
+final.files <- tibble()
+
+for (i in 1:nrow(rsf.2017.jobs.2)) {
+  final.files <- rbind(final.files, str_c("rsf_2017_",
+                                          rsf.2017.jobs.2[i, 3], "_",
+                                          rsf.2017.jobs.2[i, 4], "_",
+                                          rsf.2017.jobs.2[i, 5], ".csv"))
+}
+
+files <- list.files(pattern = "csv", here("chtc", "rsf_2017")) 
+files.check <- as_tibble(files)
+final.files <- final.files %>%
+  rename(value = X.rsf_2017_sf_0_1.csv.)
+
+# check which are missing
+missing <- final.files %>%
+  anti_join(files.check, by = "value") # none!!
+```
+
+### merging output
+```{r}
+files <- list.files(pattern = "csv", here("chtc", "rsf_2017")) 
+shortnames = c("aspect", "cc", "ch", "lfd", "s10z", "sci", "sdq", "sf", "sq")
+scales = c(0, 120, 30, 300, 500, 60)
+output <- read_csv(here("chtc", "rsf_2017", files[1])) %>% slice(0) %>%
+  mutate(var.scale = NA) 
+
+for (i in 1:9) { # indexes variables, don't change
+  varname = shortnames[i]
+  for (k in 1:6) { # number of scales
+    scale = scales[k]
+    for (j in 1:59) { # number of sets
+      temp <- read_csv(here("chtc", "rsf_2017", files[(i-1)*354 + (k-1)*59 + j])) %>%
+        mutate(var.scale = str_c(varname, ".", as.character(scale)))
+      output <- rbind(output, temp)
+    }
+  }
+}
+
+output.2 <- output %>%
+  pivot_wider(names_from = var.scale, values_from = newvar) 
+
+write_csv(output.2, here("data-private", "rsf_2017.csv"))
+```
+
+
+## combining all RSF data
+```{r}
+rsf.2015 <- read_csv(here("data-private", "rsf_2015.csv"))
+rsf.2016 <- read_csv(here("data-private", "rsf_2016.csv"))
+rsf.2017 <- read_csv(here("data-private", "rsf_2017.csv"))
+rsf.all <- rbind(rsf.2015, rsf.2016, rsf.2017) %>%
+  select(-data, -x_, -y_, -aspect.0, -aspect.30, -aspect.60, -aspect.120, -aspect.300, -aspect.500, -s10z.0, -sci.0, -sdq.0, -sq.0)
+rsf <- read_csv(here("data-private", "gps_rsf.csv")) # correct n obs
+write.csv(rsf.all, here("data-public", "gps_rsf_scales.csv"))
+```
+
+
+## 2017 hourly SSF data
+### making jobs
+```{r}
+ssf.hr.2017 <- read_csv(here("data-private", "gps_ssf_hr.csv")) %>%
+  filter(Year == 2017) #57057: 114 and change --> 115 sets of 500
+
+ssf.hr.2017.jobs <- tibble(r.file = c("cfo_surfacefuels_summer_2017.tif", "cfo_ladderfueldensity_summer_2017.tif", "cfo_canopycover_summer_2017.tif", "cfo_canopyheight_summer_2017.tif", "snb_aspect.tif", "cfo_canopyheight_summer_2017.tif", "cfo_canopyheight_summer_2017.tif", "cfo_canopyheight_summer_2017.tif", "cfo_canopyheight_summer_2017.tif"), 
+                      metric = c("mean", "mean", "mean", "mean", "mean", "sq", "sdq", "s10z", "sci"),
+                      shortname = c("sf", "lfd", "cc", "ch", "aspect", "sq", "sdq", "s10z", "sci"),
+                      scale.0 = 0, scale.30 = 30, scale.60 = 60, scale.120 = 120, scale.300 = 300, scale.500 = 500) %>%
+  pivot_longer(cols = scale.0:scale.500, values_to = "scale", names_to = NULL)
+
+ssf.hr.2017.jobs.out <- ssf.hr.2017.jobs %>% 
+  mutate(set = NA) %>%
+  slice(0)
+for (i in 1:115) {
+  temp.jobs <- ssf.hr.2017.jobs %>%
+    mutate(set = i) 
+  ssf.hr.2017.jobs.out <- rbind(ssf.hr.2017.jobs.out, temp.jobs)
+} 
+
+write_csv(ssf.hr.2017.jobs.out, here("chtc", "ssf_hr_2017.txt"), col_names = F)
+
+
+# list of output files to compare to: 
+final.files <- tibble()
+for (i in 1:nrow(ssf.hr.2017.jobs.out)) {
+  final.files <- rbind(final.files, str_c("ssf_hr_2017_",
+                                          ssf.hr.2017.jobs.out$shortname[i], "_",
+                                          ssf.hr.2017.jobs.out$scale[i], "_",
+                                          ssf.hr.2017.jobs.out$set[i], ".csv"))
+}
+
+files <- list.files(pattern = "csv", here("chtc", "ssf_hr_2017")) 
+files.check <- as_tibble(files)
+
+# check which are missing
+missing <- anti_join(final.files, files.check, by = c("X.ssf_hr_2017_sf_0_1.csv." = "value")) %>%
+  arrange(X.ssf_hr_2017_sf_0_1.csv.) 
+jobs.left <- cbind(ssf.hr.2017.jobs.out, final.files) %>%
+  semi_join(missing) %>%
+  select(-X.ssf_hr_2017_sf_0_1.csv.)
+
+write_csv(jobs.left, here("chtc", "ssf_hr_2017_b.txt"), col_names = F)
+```
+
+
+### merging
+files[(i-1)*x + (k-1)*y + j]
+- x is from n.scales x n.sets
+- y is n.sets
+```{r}
+files <- list.files(pattern = "csv", here("chtc", "ssf_hr_2017")) 
+
+shortnames = c("aspect", "cc", "ch", "lfd", "s10z", "sci", "sdq", "sf", "sq")
+scales = c(0, 120, 30, 300, 500, 60)
+output <- read_csv(here("chtc", "ssf_hr_2017", files[1])) %>% slice(0) %>%
+  mutate(var.scale = NA) 
+
+for (i in 1:9) { # indexes variables, don't change
+  varname = shortnames[i]
+  for (k in 1:6) { # number of scales
+    scale = scales[k]
+    for (j in 1:115) { # number of sets
+      temp <- read_csv(here("chtc", "ssf_hr_2017", files[(i-1)*690 + (k-1)*115 + j])) %>%
+        mutate(var.scale = str_c(varname, ".", as.character(scale)))
+      output <- rbind(output, temp)
+    }
+  }
+}
+
+output.2 <- output %>%
+  pivot_wider(names_from = var.scale, values_from = newvar) 
+
+write_csv(output.2, here("data-private", "ssf_hr_2017.csv"))
+```
+
+
+## 2018 hourly SSF data
+### making jobs
+```{r}
+ssf.hr.2018 <- read_csv(here("data-private", "gps_ssf_hr.csv")) %>%
+  filter(Year == 2018) # 38038 obs
+38038/500
+
+ssf.hr.2018.jobs <- tibble(r.file = c("cfo_surfacefuels_summer_2018.tif", "cfo_ladderfueldensity_summer_2018.tif", "cfo_canopycover_summer_2018.tif", "cfo_canopyheight_summer_2018.tif", "snb_aspect.tif", "cfo_canopyheight_summer_2018.tif", "cfo_canopyheight_summer_2018.tif", "cfo_canopyheight_summer_2018.tif", "cfo_canopyheight_summer_2018.tif"), 
+                      metric = c("mean", "mean", "mean", "mean", "mean", "sq", "sdq", "s10z", "sci"),
+                      shortname = c("sf", "lfd", "cc", "ch", "aspect", "sq", "sdq", "s10z", "sci"),
+                      scale.0 = 0, scale.30 = 30, scale.60 = 60, scale.120 = 120, scale.300 = 300, scale.500 = 500) %>%
+  pivot_longer(cols = scale.0:scale.500, values_to = "scale", names_to = NULL)
+
+ssf.hr.2018.jobs.out <- ssf.hr.2018.jobs %>% 
+  mutate(set = NA) %>%
+  slice(0)
+
+for (i in 1:77) { 
+  temp.jobs <- ssf.hr.2018.jobs %>%
+    mutate(set = i) 
+  ssf.hr.2018.jobs.out <- rbind(ssf.hr.2018.jobs.out, temp.jobs)
+}
+
+write_csv(ssf.hr.2018.jobs.out, here("chtc", "ssf_hr_2018.txt"), col_names = F)
+```
+
+### checking completion
+```{r}
+# list of output files to compare to: 
+final.files <- tibble()
+for (i in 1:nrow(ssf.hr.2018.jobs.out)) {
+  final.files <- rbind(final.files, str_c("ssf_hr_2018_",
+                                          ssf.hr.2018.jobs.out$shortname[i], "_",
+                                          ssf.hr.2018.jobs.out$scale[i], "_",
+                                          ssf.hr.2018.jobs.out$set[i], ".csv"))
+}
+
+files <- list.files(pattern = "csv", here("chtc", "ssf_hr_2018")) 
+files.check <- as_tibble(files)
+# check which are missing
+missing <- anti_join(final.files, files.check, by = c("X.ssf_hr_2018_sf_0_1.csv." = "value")) %>%
+  arrange(X.ssf_hr_2018_sf_0_1.csv.) 
+jobs.left <- cbind(ssf.hr.2018.jobs.out, final.files) %>%
+  semi_join(missing) %>%
+  select(-X.ssf_hr_2018_sf_0_1.csv.)
+
+write_csv(jobs.left, here("chtc", "ssf_hr_2018_b.txt"), col_names = F)
+```
+
+### merging
+files[(i-1)*x + (k-1)*y + j]
+- x is from n.scales x n.sets
+- y is n.sets
+```{r}
+files <- list.files(pattern = "csv", here("chtc", "ssf_hr_2018")) 
+shortnames = c("aspect", "cc", "ch", "lfd", "s10z", "sci", "sdq", "sf", "sq")
+scales = c(0, 120, 30, 300, 500, 60)
+output <- read_csv(here("chtc", "ssf_hr_2018", files[1])) %>% slice(0) %>%
+  mutate(var.scale = NA) 
+
+for (i in 1:9) { # indexes variables, don't change
+  varname = shortnames[i]
+  for (k in 1:6) { # number of scales
+    scale = scales[k]
+    for (j in 1:77) { # number of sets
+      temp <- read_csv(here("chtc", "ssf_hr_2018", files[(i-1)*462 + (k-1)*77 + j])) %>%
+        mutate(var.scale = str_c(varname, ".", as.character(scale)))
+      output <- rbind(output, temp)
+    }
+  }
+}
+
+output.2 <- output %>%
+  pivot_wider(names_from = var.scale, values_from = newvar) 
+# there are some gaps--errors? why?
+write_csv(output.2, here("data-private", "ssf_hr_2018.csv"))
+```
+
+## combining hourly ssf data
+```{r}
+ssf.hr.2017.p <- read_csv(here("data-private", "ssf_hr_2017.csv"))
+ssf.hr.2018.p <- read_csv(here("data-private", "ssf_hr_2018.csv"))
+ssf.all <- rbind(ssf.hr.2017.p, ssf.hr.2018.p) %>%
+    select(-data, -x1_, -y1_, -x2_, -y2_, -aspect.0, -aspect.30, -aspect.60, -aspect.120, -aspect.300, -aspect.500, -s10z.0, -sci.0, -sdq.0, -sq.0)
+ssf <- read_csv(here("data-private", "gps_ssf_hr.csv")) # same number
+write_csv(ssf.all, here("data-public", "gps_ssf_hr_scales.csv"))
+```
+
+
+## 2019 ssf min data
+
+### making jobs
+- 150 sets, 8,100 total jobs
+```{r}
+ssf.min.2019 <- read_csv(here("data-private", "gps_ssf_min.csv")) %>%
+  filter(Year == 2019)
+nrow(ssf.min.2019)/500 # 448, = 24192 jobs 
+nrow(ssf.min.2019)/1500 # 150*54 = 8000 jobs (ok)
+
+ssf.min.2019.jobs <- tibble(r.file = c("cfo_surfacefuels_summer_2019.tif", "cfo_ladderfueldensity_summer_2019.tif", "cfo_canopycover_summer_2019.tif", "cfo_canopyheight_summer_2019.tif", "snb_aspect.tif", "cfo_canopyheight_summer_2019.tif", "cfo_canopyheight_summer_2019.tif", "cfo_canopyheight_summer_2019.tif", "cfo_canopyheight_summer_2019.tif"), 
+                      metric = c("mean", "mean", "mean", "mean", "mean", "sq", "sdq", "s10z", "sci"),
+                      shortname = c("sf", "lfd", "cc", "ch", "aspect", "sq", "sdq", "s10z", "sci"),
+                      scale.0 = 0, scale.30 = 30, scale.60 = 60, scale.120 = 120, scale.300 = 300, scale.500 = 500) %>%
+  pivot_longer(cols = scale.0:scale.500, values_to = "scale", names_to = NULL)
+
+ssf.min.2019.jobs.out <- ssf.min.2019.jobs %>% 
+  mutate(set = NA) %>%
+  slice(0)
+
+for (i in 1:150) { 
+  temp.jobs <- ssf.min.2019.jobs %>%
+    mutate(set = i) 
+  ssf.min.2019.jobs.out <- rbind(ssf.min.2019.jobs.out, temp.jobs)
+}
+
+write_csv(ssf.min.2019.jobs.out, here("chtc", "ssf_min_2019.txt"), col_names = F)
+```
+
+### checking completion
+```{r}
+# list of output files to compare to: 
+final.files <- tibble()
+for (i in 1:nrow(ssf.min.2019.jobs.out)) {
+  final.files <- rbind(final.files, str_c("ssf_min_2019_",
+                                          ssf.min.2019.jobs.out$shortname[i], "_",
+                                          ssf.min.2019.jobs.out$scale[i], "_",
+                                          ssf.min.2019.jobs.out$set[i], ".csv"))
+}
+
+files <- list.files(pattern = "csv", here("chtc", "ssf_min_2019")) 
+files.check <- as_tibble(files)
+
+# check which are missing
+missing <- anti_join(final.files, files.check, by = c("X.ssf_min_2019_sf_0_1.csv." = "value")) %>%
+  arrange(X.ssf_min_2019_sf_0_1.csv.) 
+
+
+jobs.left <- cbind(ssf.min.2019.jobs.out, final.files) %>%
+  semi_join(missing) %>%
+  select(-X.ssf_min_2019_sf_0_1.csv.)
+
+write_csv(jobs.left, here("chtc", "ssf_min_2019_b.txt"), col_names = F)
+```
+
+### merging
+files[(i-1)*x + (k-1)*y + j]
+- x is from n.scales x n.sets
+- y is n.sets
+```{r}
+files <- list.files(pattern = "csv", here("chtc", "ssf_min_2019")) 
+shortnames = c("aspect", "cc", "ch", "lfd", "s10z", "sci", "sdq", "sf", "sq")
+scales = c(0, 120, 30, 300, 500, 60)
+output <- read_csv(here("chtc", "ssf_min_2019", files[1])) %>% slice(0) %>%
+  mutate(var.scale = NA) 
+
+for (i in 1:9) { # indexes variables, don't change
+  print(i)
+  varname = shortnames[i]
+  for (k in 1:6) { # number of scales, don't change
+    print(k)
+    scale = scales[k]
+    for (j in 1:150) { # number of sets
+      print(j)
+      temp <- read_csv(here("chtc", "ssf_min_2019", files[(i-1)*900 + (k-1)*150 + j])) %>%
+        mutate(var.scale = str_c(varname, ".", as.character(scale)))
+      output <- rbind(output, temp)
+    }
+  }
+}
+
+output.2 <- output %>%
+  pivot_wider(names_from = var.scale, values_from = newvar) 
+write_csv(output.2, here("data-private", "ssf_min_2019.csv"))
+```
+
+
+## 2020 ssf min data
+
+### making jobs
+- 178 sets, 9612 total jobs
+```{r}
+ssf.min.2020 <- read_csv(here("data-private", "gps_ssf_min.csv")) %>%
+  filter(Year == 2020)
+nrow(ssf.min.2020)/1600 # 178 sets *54 = 9612 jobs
+
+ssf.min.2020.jobs <- tibble(r.file = c("cfo_surfacefuels_summer_2020.tif", "cfo_ladderfueldensity_summer_2020.tif", "cfo_canopycover_summer_2020.tif", "cfo_canopyheight_summer_2020.tif", "snb_aspect.tif", "cfo_canopyheight_summer_2020.tif", "cfo_canopyheight_summer_2020.tif", "cfo_canopyheight_summer_2020.tif", "cfo_canopyheight_summer_2020.tif"), 
+                      metric = c("mean", "mean", "mean", "mean", "mean", "sq", "sdq", "s10z", "sci"),
+                      shortname = c("sf", "lfd", "cc", "ch", "aspect", "sq", "sdq", "s10z", "sci"),
+                      scale.0 = 0, scale.30 = 30, scale.60 = 60, scale.120 = 120, scale.300 = 300, scale.500 = 500) %>%
+  pivot_longer(cols = scale.0:scale.500, values_to = "scale", names_to = NULL)
+
+ssf.min.2020.jobs.out <- ssf.min.2020.jobs %>% 
+  mutate(set = NA) %>%
+  slice(0)
+
+for (i in 1:178) { 
+  temp.jobs <- ssf.min.2020.jobs %>%
+    mutate(set = i) 
+  ssf.min.2020.jobs.out <- rbind(ssf.min.2020.jobs.out, temp.jobs)
+}
+
+write_csv(ssf.min.2020.jobs.out, here("chtc", "ssf_min_2020.txt"), col_names = F)
+ssf.min.2020.jobs.out <- read_csv(here("chtc", "ssf_min_2020.txt"), col_names = F)
+```
+
+### checking completion
+```{r}
+# list of output files to compare to: 
+final.files <- tibble()
+for (i in 1:nrow(ssf.min.2020.jobs.out)) {
+  final.files <- rbind(final.files, str_c("ssf_min_2020_",
+                                          ssf.min.2020.jobs.out$X3[i], "_",
+                                          ssf.min.2020.jobs.out$X4[i], "_",
+                                          ssf.min.2020.jobs.out$X5[i], ".csv"))
+}
+
+files <- list.files(pattern = "csv", here("chtc", "ssf_min_2020")) 
+files.check <- as_tibble(files)
+
+# check which are missing
+missing <- anti_join(final.files, files.check, by = c("X.ssf_min_2020_sf_0_1.csv." = "value")) %>%
+  arrange(X.ssf_min_2020_sf_0_1.csv.) 
+
+jobs.left <- cbind(ssf.min.2020.jobs.out, final.files) %>%
+  semi_join(missing) %>%
+  select(-X.ssf_min_2020_sf_0_1.csv.)
+
+write_csv(jobs.left, here("chtc", "ssf_min_2020_d.txt"), col_names = F)
+```
+
+### merging
+files[(i-1)*x + (k-1)*y + j]
+- x is from n.scales x n.sets
+- y is n.sets
+```{r}
+files <- list.files(pattern = "csv", here("chtc", "ssf_min_2020")) 
+shortnames = c("aspect", "cc", "ch", "lfd", "s10z", "sci", "sdq", "sf", "sq")
+scales = c(0, 120, 30, 300, 500, 60)
+output <- read_csv(here("chtc", "ssf_min_2020", files[1])) %>% slice(0) %>%
+  mutate(var.scale = NA) 
+
+for (i in 1:9) { # indexes variables, don't change
+  print(i)
+  varname = shortnames[i]
+  for (k in 1:6) { # number of scales, don't change
+    print(k)
+    scale = scales[k]
+    for (j in 1:178) { # number of sets
+      print(j)
+      temp <- read_csv(here("chtc", "ssf_min_2020", files[(i-1)*1068 + (k-1)*178 + j])) %>%
+        mutate(var.scale = str_c(varname, ".", as.character(scale)))
+      output <- rbind(output, temp)
+    }
+  }
+}
+
+output.2 <- output %>%
+  pivot_wider(names_from = var.scale, values_from = newvar) 
+
+write_csv(output.2, here("data-private", "ssf_min_2020.csv"))
+```  
+
+### joining together minute-by-minute ssf data
+```{r}
+ssf.min.2019 <- read_csv(here("data-private", "ssf_min_2019.csv"))
+ssf.min.2020 <- read_csv(here("data-private", "ssf_min_2020.csv"))
+ssf.min <- rbind(ssf.min.2019, ssf.min.2020)  %>%
+    select(-data, -x1_, -y1_, -x2_, -y2_, -aspect.0, -aspect.30, -aspect.60, -aspect.120, -aspect.300, -aspect.500, -s10z.0, -sci.0, -sdq.0, -sq.0)
+ssf.pre <- read_csv(here("data-private", "gps_ssf_min.csv"))
+write_csv(ssf.min, here("data-public", "gps_ssf_min_scales.csv"))
+```

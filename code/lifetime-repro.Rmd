@@ -1,0 +1,216 @@
+---
+title: "Long term repro data"
+author: "Jessalyn Ayars"
+date: '2022-06-10'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(here)
+library(tidyverse)
+library(ggplot2)
+library(scico)
+select <- dplyr::select
+```
+
+cleaning new, long-term repro data from UW
+```{r}
+repro.full <- read_csv(here("data-private", "ReproductionResidencyandTerritoryCenter.csv")) %>%
+  # cut whitespace from usfws id's
+  mutate(M_USFWS = str_replace_all(M_USFWS, " ", "")) %>%
+  # getting rid of redundant female entries
+  select(-c(F_Species, F_USFWS, F_Color_Code, F_Trap, F_Age, Activity_Center_Date, Comments)) %>%
+  distinct() %>%
+  mutate(M_Age = as.factor(M_Age))
+
+repro.uw <- repro.full %>%
+  # dropping unknown band #s
+  filter(M_USFWS != "*") %>%
+  # dropping nesting unknowns 
+  filter(Repro != "UN") %>%
+  # variable for whether nesting was attempted
+  mutate(nesting_yn = recode_factor(Repro, "NT" = "y", "NO" = "n", 
+                                    "FN" = "y", "NJ" = "y", "NY" = "y", "1F" = "y", 
+                                    "2F" = "y", "3F" = "y")) %>%
+  # setting up number of fledglings variable
+  mutate(n_fledglings = 0) 
+
+# assigning number of fledglings
+one <- which(repro.uw$Repro == "1F")
+repro.uw$n_fledglings[one] <- 1
+two <- which(repro.uw$Repro == "2F")
+repro.uw$n_fledglings[two] <- 2
+three <- which(repro.uw$Repro == "3F")
+repro.uw$n_fledglings[three] <- 3
+
+repro.uw.2 <- repro.uw %>%
+  select(Territory, Year, M_USFWS, nesting_yn, n_fledglings, M_Age) %>%
+  mutate(source = "UW")
+```
+
+loading new band data from SPI and joining it to their LTR data
+```{r}
+# new data 23/11/17
+repro.spi <- read_csv(here("data-private", "JA_11172023.csv")) %>%
+  mutate(M_USFWS = str_replace(`Band #`, "-", ""), .keep = "unused",
+         source = "spi",
+         repro.status = recode_factor(`Bird Status`, "Resident Single Male" = "single", "Pair"  = "non.nesting", "Single"  = "single", "Pair_diurnal"  = "non.nesting", "Reproductive Pair" = "successful.nest",  "Nesting Pair"  = "failed.nest",  "Absent"  = "absent", "Reproductive pair" = "successful.nest",  "Resident Single Unknown" = "single", "Pair - 2 birds" = "non.nesting", "Absent Quieted" = "absent", "Resident Single Female" = "single",
+"Pair_night" = "non.nesting", "Resident single male diurnal" = "single"),
+        nesting_yn = recode_factor(repro.status, "single" = "n", "non.nesting" = "n", "successful.nest" = "y", "failed.nest" = "y", "absent" = "n"),
+        M_Age = NA) %>%
+  rename(Territory = `CDFW ID`,
+         n_fledglings = NUM_YOUNG) %>% 
+  drop_na(M_USFWS) %>%
+  filter(is.na(Sex) | Sex == "male") %>%
+  select(Territory, Year, M_USFWS, nesting_yn, n_fledglings, M_Age, source) %>%
+  distinct()
+
+check <- repro.spi %>%
+  group_by(Territory, Year) %>%
+  mutate(how.many = n()) %>%
+  filter(how.many > 1) # none
+
+# number of years monitored
+test <- repro.spi %>%
+  group_by(M_USFWS) %>%
+  mutate(yrs.monitored = n()) 
+table(test$yrs.monitored)
+
+# years   1  2 
+# n.owls 37 16
+```
+
+joining UW and SPI data
+```{r}
+repro.all <- rbind(repro.uw.2, repro.spi) %>%
+  distinct()
+```
+
+keeping long-term data for owls present in our analyses
+```{r}
+repro.gps <- read_csv(here("data-private", "repro_cleaned.csv")) %>%
+  mutate(M_USFWS = as.character(M_USFWS)) 
+
+repro.matched <- semi_join(repro.all, repro.gps, by = "M_USFWS") 
+
+ levels(repro.matched$M_Age) <- c("*", "1", "2", ">=2", "3", ">=3", "4", ">=4", "5", ">=5", "6", ">=6", "7", ">=7", "8", ">=8", "9", ">=9", "10", ">=10", "11", ">=11", "12", ">=12", "13", ">=13", "14", ">=14", "15", ">=15", "16", ">=16", "17", ">=17", "18", ">=18")
+```
+
+making lifetime variables
+```{r}
+gps.all <- read_csv(here("data-private", "gps_cleaned.csv"))
+
+repro.lt <- repro.all %>%
+  left_join(gps.all, by = c("Territory", "Year")) %>%
+  distinct(Territory, Year, .keep_all = T) %>%
+  group_by(M_USFWS) %>% 
+  mutate(n.years = n()) %>%
+  mutate(total.young = sum(n_fledglings)) %>%
+  mutate(all.terrs = list(unique(Territory))) %>%
+  mutate(total.nestings = sum(nesting_yn == "y")) %>%
+  mutate(all.yrs = list(unique(Year))) %>%
+  mutate(all.xsfs = list(which.xsf[!is.na(which.xsf)])) %>%
+  mutate(all.sources = str_c(unique(source), collapse = ".")) %>%
+  arrange(desc(M_Age)) %>%
+  distinct(M_USFWS, .keep_all = T) %>%
+  select(Territory, Year, M_USFWS, M_Age, n.years, total.young, all.terrs, total.nestings, all.yrs, all.xsfs, all.sources)
+```
+
+eda
+```{r}
+repro.matched2 <- repro.matched %>%
+  group_by(M_USFWS) %>% 
+  mutate(n.years = n()) %>%
+  arrange(desc(M_Age)) %>%
+  distinct(M_USFWS, .keep_all = T)
+
+repro.matched2 %>%
+  ggplot() +
+  geom_histogram(aes(n.years))
+# a lot of owls with a lot of data!!
+
+repro.matched2 %>%
+  ggplot() +
+  geom_point(aes(M_Age, n.years))
+
+repro.lt %>%
+  ggplot() +
+  geom_jitter(aes(M_Age, total.young))
+
+repro.lt %>%
+  ggplot() +
+  geom_jitter(aes(n.years, total.young))
+
+table(repro.lt$n.years, repro.lt$all.sources) 
+```
+
+
+## data to use
+```{r}
+rsf <- read_csv(here("data-private", "repro_rsf_covs.csv"))
+ssf.hr <- read_csv(here("data-private", "repro_ssf_hr_covs.csv"))
+ssf.min <- read_csv(here("data-private", "repro_ssf_min_covs.csv"))
+
+repro.lt.2 <- repro.all %>%
+  left_join(gps.all, by = c("Territory", "Year")) %>%
+  distinct(Territory, Year, .keep_all = T) %>%
+  group_by(M_USFWS) %>% 
+  mutate(n.years = n()) %>%
+  mutate(total.young = sum(n_fledglings)) %>%
+  mutate(all.terrs = list(unique(Territory))) %>%
+  mutate(total.nestings = sum(nesting_yn == "y")) %>%
+  mutate(all.yrs = list(unique(Year))) %>%
+  mutate(all.xsfs = list(which.xsf[!is.na(which.xsf)])) %>%
+  mutate(all.sources = list(unique(source))) %>%
+  arrange(desc(M_Age)) %>%
+  drop_na(which.xsf) %>%
+  distinct(M_USFWS, which.xsf, Year, .keep_all = T) %>%
+  filter(n.years >= 3) %>%
+  select(Territory, Year, which.xsf, M_USFWS, M_Age, n.years, total.young, all.terrs, total.nestings, all.yrs, all.xsfs, all.sources)
+
+rsf.lt <- left_join(rsf, repro.lt.2, by = c("Territory", "Year")) %>%
+  filter(!is.na(n.years)) %>%
+  filter(nesting_yn == 1) %>%
+  mutate(young.yrly = total.young/n.years) 
+ssf.hr.lt <- left_join(ssf.hr, repro.lt.2, by = c("Territory", "Year")) %>%
+  filter(!is.na(n.years)) %>%
+  filter(nesting_yn == 1) %>%
+  mutate(young.yrly = total.young/n.years)  # only 3 observations, do not model
+ssf.min.lt <- left_join(ssf.min, repro.lt.2, by = c("Territory", "Year")) %>%
+  filter(!is.na(n.years))  %>%
+  filter(nesting_yn == 1) %>%
+  mutate(young.yrly = total.young/n.years) 
+
+write_csv(rsf.lt, here("data-public", "ltr_rsf.csv"))
+write_csv(ssf.hr.lt, here("data-public", "ltr_ssf_hr.csv"))
+write_csv(ssf.min.lt, here("data-public", "ltr_ssf_min.csv")) 
+```
+
+## long-term summary data/visual
+```{r}
+lt.viz <- repro.all %>%
+  group_by(Year) %>%
+  mutate(total.surveyed = n()) %>%
+  mutate(total.nests = sum(nesting_yn == "y"), na.rm = T) %>%
+  mutate(total.fledglings = sum(n_fledglings), na.rm = T) %>% 
+  select(Year, total.surveyed, total.nests, total.fledglings) %>%
+  distinct() %>%
+  mutate(nests.effort = total.nests/total.surveyed) %>%
+  mutate(fledged.effort = total.fledglings/total.surveyed)
+
+ggplot(filter(lt.viz, Year < 2021)) +
+  geom_line(aes(Year, nests.effort), color = "#996330") +
+  geom_line(aes(Year, fledged.effort), color = "#7FC55F") +
+  geom_vline(xintercept = 2015, color = "#8C0172") +
+  labs(y = "Nest initiation rate, fledge rate") +
+  theme_bw() 
+```
+
+### stats?
+- slightly more nesters in our dataset on average, average young fledged is super similar though
+```{r}
+t.test(filter(lt.repro.ts, Year >= 2015 & Year < 2021)$nests.effort, filter(lt.repro.ts, Year < 2015)$nests.effort)
+t.test(filter(lt.repro.ts, Year >= 2015 & Year < 2021)$fledged.effort, filter(lt.repro.ts, Year < 2015)$fledged.effort)
+```
+

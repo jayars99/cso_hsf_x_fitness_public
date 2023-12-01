@@ -1,0 +1,111 @@
+---
+title: "model selection for RSF"
+author: "Jessalyn Ayars"
+date: "2022-08-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(here)
+library(tidyverse)
+library(glmmTMB)
+source(here("code", "misc_functions.R"))
+```
+
+
+## Data
+```{r data}
+rsf.data <- read_csv(here("data-public", "rsf_final.csv"))
+```
+
+
+## Checks
+- by spearman, cc and ch, cc and s10z, ch and s10z, ch and sdq, s10z and sdq, s10z and sq, and sdq and sq have cor > 0.6
+- none are excessively correlated with distance to nest
+-> individual models
+```{r}
+pairs(rsf.data[c(14:22)], lower.panel = panel.spearman) 
+```
+
+## Modeling
+```{r}
+# cc
+rsf.cc <- glmmTMB(case_ ~ (1|id) + dtn.scaled + (0 + cc.60.scaled|id) + cc.60.scaled + (0 + I(cc.60.scaled^2)|id) + I(cc.60.scaled^2), data = rsf.data, family = "binomial", REML = T, doFit = F)
+rsf.cc$parameters$theta[1] = log(1e3)
+rsf.cc$mapArg = list(theta = factor(c(NA, 1, 2)))
+rsf.cc = glmmTMB::fitTMB(rsf.cc)
+summary(rsf.cc)  
+cc.60 <- coef(rsf.cc)$cond$id$cc.60.scaled
+cc.60.sq <- coef(rsf.cc)$cond$id[[4]]
+
+# ch
+rsf.ch <- glmmTMB(case_ ~ (1|id) + dtn.scaled + (0 + ch.30.scaled|id) + ch.30.scaled + (0 + I(ch.30.scaled^2)|id) + I(ch.30.scaled^2), data = rsf.data, family = "binomial", REML = T, doFit = F)
+rsf.ch$parameters$theta[1] = log(1e3)
+rsf.ch$mapArg = list(theta = factor(c(NA, 1, 2)))
+rsf.ch = glmmTMB::fitTMB(rsf.ch)
+summary(rsf.ch) 
+ch.30 <- coef(rsf.ch)$cond$id$ch.30.scaled
+ch.30.sq <- coef(rsf.ch)$cond$id[[4]]
+
+# lfd
+rsf.lfd <- glmmTMB(case_ ~ (1|id) + dtn.scaled + (0 + lfd.500.scaled|id) + lfd.500.scaled, data = rsf.data, family = "binomial", REML = T, doFit = F)
+rsf.lfd$parameters$theta[1] = log(1e3)
+rsf.lfd$mapArg = list(theta = factor(c(NA, 1)))
+rsf.lfd = glmmTMB::fitTMB(rsf.lfd)
+summary(rsf.lfd) 
+lfd.500 <- coef(rsf.lfd)$cond$id$lfd.500.scaled
+
+# s10z
+rsf.s10z <- glmmTMB(case_ ~ (1|id) + dtn.scaled + (0 + s10z.120.scaled|id) + s10z.120.scaled, data = rsf.data, family = "binomial", REML = T, doFit = F)
+rsf.s10z$parameters$theta[1] = log(1e3)
+rsf.s10z$mapArg = list(theta = factor(c(NA, 1)))
+rsf.s10z = glmmTMB::fitTMB(rsf.s10z)
+summary(rsf.s10z)  
+s10z.120 <- coef(rsf.s10z)$cond$id$s10z.120.scaled
+
+# sci
+rsf.sci <- glmmTMB(case_ ~ (1|id) + dtn.scaled + (0 + sci.30.scaled|id) + sci.30.scaled, data = rsf.data, family = "binomial", REML = T, doFit = F)
+rsf.sci$parameters$theta[1] = log(1e3)
+rsf.sci$mapArg = list(theta = factor(c(NA, 1)))
+rsf.sci = glmmTMB::fitTMB(rsf.sci)
+summary(rsf.sci)  
+sci.30 <- coef(rsf.sci)$cond$id$sci.30.scaled
+
+# sdq
+rsf.sdq <- glmmTMB(case_ ~ (1|id) + dtn.scaled + (0 + sdq.60.scaled|id) + sdq.60.scaled, data = rsf.data, family = "binomial", REML = T, doFit = F)
+rsf.sdq$parameters$theta[1] = log(1e3)
+rsf.sdq$mapArg = list(theta = factor(c(NA, 1)))
+rsf.sdq = glmmTMB::fitTMB(rsf.sdq)
+summary(rsf.sdq)  
+sdq.60 <- coef(rsf.sdq)$cond$id$sdq.60.scaled
+
+# sf
+rsf.sf <- glmmTMB(case_ ~ (1|id) + dtn.scaled + (0 + sf.60.scaled|id) + sf.60.scaled, data = rsf.data, family = "binomial", REML = T, doFit = F)
+rsf.sf$parameters$theta[1] = log(1e3)
+rsf.sf$mapArg = list(theta = factor(c(NA, 1)))
+rsf.sf = glmmTMB::fitTMB(rsf.sf)
+summary(rsf.sf)  
+sf.60 <- coef(rsf.sf)$cond$id$sf.60.scaled
+
+# sq
+rsf.sq <- glmmTMB(case_ ~ (1|id) + dtn.scaled + (0 + sq.60.scaled|id) + sq.60.scaled, data = rsf.data, family = "binomial", REML = T, doFit = F)
+rsf.sq$parameters$theta[1] = log(1e3)
+rsf.sq$mapArg = list(theta = factor(c(NA, 1)))
+rsf.sq = glmmTMB::fitTMB(rsf.sq)
+summary(rsf.sq)  
+sq.60 <- coef(rsf.sq)$cond$id$sq.60.scaled
+```
+
+
+## Output for repro analysis
+```{r}
+ids <- rsf.data %>%
+  distinct(id) %>%
+  arrange(id)
+
+output <- cbind(ids, cc.60, cc.60.sq, ch.30, ch.30.sq, lfd.500, s10z.120, sci.30, sdq.60, sf.60, sq.60) 
+
+write_csv(output, here("data-public", "rsf_results.csv"))
+```
+

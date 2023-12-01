@@ -1,0 +1,427 @@
+---
+title: "Validating CHTC data extraction"
+author: "Jessalyn Ayars"
+date: "2022-08-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(here)
+library(tidyverse)
+library(geodiv)
+library(raster)
+library(sf)
+select <- dplyr::select
+```
+
+## plan
+
+do separately for each metric and xsf
+generate random list of rows to check (set seed)
+iterate over check size (start with 10, 10 is fine imo)
+  
+  iterate over scale (6)
+  visually check output
+
+### data/params
+```{r}
+rsf.scales <- read_csv(here("data-private", "gps_rsf_scales.csv")) %>%
+  select(-n_ap, -data)
+scales <- c(0, 30, 60, 120, 300, 500)
+```
+
+
+## RSF checks
+- aspect all yrs: 1 or 2 very slightly off, no evidence of logical errors
+```{r rsf-aspect}
+set.seed(81022)
+row.checks <- sample(nrow(rsf.scales), 10)
+
+check.a <- rsf.scales[row.checks,1:13]  %>%
+				st_as_sf(coords = c("x_", "y_"), crs = 32610, remove = F) %>%
+				st_transform(4269) %>%
+				mutate(lon = unlist(map(geometry,1)),
+						lat = unlist(map(geometry,2))) 
+
+aspect <- raster(here("data-private", "snb_aspect.tif"))
+
+for (scale in scales) {
+		newvar <- extract(aspect, check.a[, c("lon", "lat")], fun = mean, buffer = scale, weights = T)
+		check.a <- cbind(check.a, newvar) 
+}
+```
+
+- cc 2015/16: good
+```{r rsf-cc}
+set.seed(81722)
+rsf.20156 <- filter(rsf.scales, Year == "2015" | Year == "2016")
+row.checks <- sample(nrow(rsf.20156), 10)
+
+check.b <- rsf.20156[row.checks,1:19]
+
+cc <- raster(here("data-private", "cfo_canopycover_summer_2016.tif"))
+
+for (scale in scales) {
+  newvar <- extract(cc, check.b[, c("x_", "y_")], fun = mean, buffer = scale, weights = T)
+	check.b <- cbind(check.b, newvar) 
+}
+```
+
+- ch 2017: perfect
+```{r rsf-ch}
+set.seed(111)
+rsf.2017 <- filter(rsf.scales, Year == "2017")
+row.checks <- sample(nrow(rsf.2017), 10)
+
+check.c <- rsf.2017[row.checks, 1:25]
+ch <- raster(here("data-private", "cfo_canopyheight_summer_2017.tif"))
+
+for (scale in scales) {
+  newvar <- extract(ch, check.c[, c("x_", "y_")], fun = mean, buffer = scale, weights = T)
+	check.c <- cbind(check.c, newvar) 
+}
+```
+
+- lfd 2015/16: perfect
+```{r rsf-lfd}
+set.seed(222)
+row.checks <- sample(nrow(rsf.20156), 10)
+
+check.d <- rsf.20156[row.checks,1:31]
+lfd <- raster(here("data-private", "cfo_ladderfueldensity_summer_2016.tif"))
+
+for (scale in scales) {
+  newvar <- extract(lfd, check.d[, c("x_", "y_")], fun = mean, buffer = scale, weights = T)
+	check.d <- cbind(check.d, newvar) 
+}
+```
+
+- s10z 2017: perfct matches!!!
+```{r rsf-s10z}
+set.seed(333)
+row.checks <- sample(nrow(rsf.2017), 10)
+
+check.e <- rsf.2017[row.checks,2:36]
+ch.2017 <- ch
+
+scale = scales[4] # change and check
+  check.temp <- check.e %>%
+			st_as_sf(coords = c("x_", "y_"), crs = 32610) %>%
+			st_buffer(scale)
+  newvar <- list()
+	for (j in 1:nrow(check.temp)) {
+		mini.extent <- extent(check.temp[j,])
+		mini.raster <- crop(ch.2017, mini.extent)
+		result <- s10z(mini.raster) 
+		newvar <- rbind(newvar, result)
+	}
+  newvar <- as_tibble(newvar)
+	check.e <- cbind(check.temp, newvar) %>%
+		mutate(newvar = unlist(V1), .keep = "unused")
+```
+
+- sci for 2015/16: all in order
+```{r rsf-sci}
+set.seed(81822)
+row.checks <- sample(nrow(rsf.20156), 10)
+
+ch.20156 <- raster(here("data-private", "cfo_canopyheight_summer_2016.tif"))
+
+check.f <- rsf.20156[row.checks, c(2:8, 37:42)]
+
+scale = scales[6] # change and check
+  check.temp <- check.f %>%
+			st_as_sf(coords = c("x_", "y_"), crs = 32610) %>%
+			st_buffer(scale)
+  newvar <- list()
+	for (j in 1:nrow(check.temp)) {
+		mini.extent <- extent(check.temp[j,])
+		mini.raster <- crop(ch.20156, mini.extent)
+		result <- sci(mini.raster) 
+		newvar <- rbind(newvar, result)
+	}
+  newvar <- as_tibble(newvar)
+	check.f <- cbind(check.temp, newvar) %>%
+		mutate(newvar = unlist(V1), .keep = "unused")
+```
+
+- sdq for 2017: all g!!
+```{r rsf-sdq}
+set.seed(555)
+row.checks <- sample(nrow(rsf.2017), 10)
+
+check.g <- rsf.2017[row.checks,c(2:8, 42:46)]
+
+scale = scales[6] # change and check
+  check.temp <- check.g %>%
+			st_as_sf(coords = c("x_", "y_"), crs = 32610) %>%
+			st_buffer(scale)
+  newvar <- list()
+	for (j in 1:nrow(check.temp)) {
+		mini.extent <- extent(check.temp[j,])
+		mini.raster <- crop(ch.2017, mini.extent)
+		result <- sdq(mini.raster) 
+		newvar <- rbind(newvar, result)
+	}
+  newvar <- as_tibble(newvar)
+	check.g <- cbind(check.temp, newvar) %>%
+		mutate(newvar = unlist(V1), .keep = "unused")
+```
+
+- sf for 2015/16: perfect
+```{r rsf-sf}
+set.seed(444)
+row.checks <- sample(nrow(rsf.20156), 10)
+
+check.h <- rsf.20156[row.checks,c(1:8,47:52)]
+sf <- raster(here("data-private", "cfo_surfacefuels_summer_2016.tif"))
+
+for (scale in scales) {
+  newvar <- extract(sf, check.h[, c("x_", "y_")], fun = mean, buffer = scale, weights = T)
+	check.h <- cbind(check.h, newvar) 
+}
+```
+
+- sq for 2017: perfect        
+```{r}
+set.seed(666)
+row.checks <- sample(nrow(rsf.2017), 10)
+
+check.i <- rsf.2017[row.checks,c(2:8, 52:57)]
+
+scale = scales[2] # change and check
+  check.temp <- check.i %>%
+			st_as_sf(coords = c("x_", "y_"), crs = 32610) %>%
+			st_buffer(scale)
+  newvar <- list()
+	for (j in 1:nrow(check.temp)) {
+		mini.extent <- extent(check.temp[j,])
+		mini.raster <- crop(ch.2017, mini.extent)
+		result <- sq(mini.raster) 
+		newvar <- rbind(newvar, result)
+	}
+  newvar <- as_tibble(newvar)
+	check.i <- cbind(check.temp, newvar) %>%
+		mutate(newvar = unlist(V1), .keep = "unused")
+```
+
+
+## SSF checks
+
+### data
+```{r}
+ssf.hr <- read_csv(here("data-private", "gps_ssf_hr_scales.csv"))
+ssf.min <- read_csv(here("data-private", "gps_ssf_min_scales.csv"))
+ssf.2019 <- filter(ssf.min, Year == "2019")
+ssf.2020 <- filter(ssf.min, Year == "2020")
+```
+
+### checks
+
+- aspect: ssf.hr, solid
+```{r ssf-aspect}
+set.seed(81922)
+row.checks <- sample(nrow(ssf.hr), 10)
+
+check.j <- ssf.hr[row.checks,c(1:9,16:21)]  %>%
+				st_as_sf(coords = c("x2_", "y2_"), crs = 32610, remove = F) %>%
+				st_transform(4269) %>%
+				mutate(lon = unlist(map(geometry,1)),
+						lat = unlist(map(geometry,2))) 
+
+aspect <- raster(here("data-private", "snb_aspect.tif"))
+
+for (scale in scales) {
+		newvar <- extract(aspect, check.j[, c("lon", "lat")], fun = mean, buffer = scale, weights = T)
+		check.j <- cbind(check.j, newvar) 
+}
+```
+
+- cc: ssf.min for 2019, all g
+```{r ssf-cc}
+set.seed(777)
+row.checks <- sample(nrow(ssf.2019), 10)
+
+check.k <- ssf.2019[row.checks,c(1:9,22:27)]
+
+cc.2019 <- raster(here("data-private", "cfo_canopycover_summer_2019.tif"))
+
+for (scale in scales) {
+  newvar <- extract(cc.2019, check.k[, c("x2_", "y2_")], fun = mean, buffer = scale, weights = T)
+	check.k <- cbind(check.k, newvar) 
+}
+```
+
+- ch: ssf.min for 2020, good
+```{r ssf-ch}
+set.seed(888)
+row.checks <- sample(nrow(ssf.2020), 10)
+
+check.l <- ssf.2020[row.checks, c(1:9, 28:33)]
+
+ch.2020 <- raster(here("data-private", "cfo_canopyheight_summer_2020.tif"))
+
+for (scale in scales) {
+  newvar <- extract(ch.2020, check.l[,c("x2_", "y2_")], fun = mean, buffer = scale, weights = T)
+  check.l <- cbind(check.l, newvar)
+}
+```
+
+- lfd: ssf.hr for 2018, good
+```{r ssf-lfd}
+set.seed(999)
+ssf.2018 <- filter(ssf.hr, Year == "2018")
+row.checks <- sample(nrow(ssf.2018), 10)
+
+check.m <- ssf.2018[row.checks, c(1:9, 34:39)]
+
+lfd.2018 <- raster(here("data-private", "cfo_ladderfueldensity_summer_2018.tif"))
+
+for (scale in scales) {
+  newvar <- extract(lfd.2018, check.m[,c("x2_", "y2_")], fun = mean, buffer = scale, weights = T)
+  check.m <- cbind(check.m, newvar)
+}
+```
+
+- s10z: ssf.hr for 2017
+```{r ssf-s10z}
+set.seed(3546)
+ssf.2017 <- filter(ssf.hr, Year == "2017")
+row.checks <- sample(nrow(ssf.2017), 10)
+
+ch.2017 <- raster(here("data-private", "cfo_canopyheight_summer_2017.tif"))
+
+check.n <- ssf.2017[row.checks, c(1:9, 40:45)]
+
+scale = scales[3] # change and check
+  check.temp <- check.n %>%
+			st_as_sf(coords = c("x2_", "y2_"), crs = 32610) %>%
+			st_buffer(scale)
+  newvar <- list()
+	for (j in 1:nrow(check.temp)) {
+		mini.extent <- extent(check.temp[j,])
+		mini.raster <- crop(ch.2017, mini.extent)
+		result <- s10z(mini.raster) 
+		newvar <- rbind(newvar, result)
+	}
+  newvar <- as_tibble(newvar)
+	check.n <- cbind(check.temp, newvar) %>%
+		mutate(newvar = unlist(V1), .keep = "unused")
+```
+
+- sci: ssf.min for 2019
+```{r ssf-sci}
+set.seed(7658)
+row.checks <- sample(nrow(ssf.2019), 10)
+
+ch.2019 <- raster(here("data-private", "cfo_canopyheight_summer_2019.tif"))
+
+check.o <- ssf.2019[row.checks, c(1:9, 45:49)]
+
+scale = scales[6] # change and check
+  check.temp <- check.o %>%
+			st_as_sf(coords = c("x2_", "y2_"), crs = 32610) %>%
+			st_buffer(scale)
+  newvar <- list()
+	for (j in 1:nrow(check.temp)) {
+		mini.extent <- extent(check.temp[j,])
+		mini.raster <- crop(ch.2019, mini.extent)
+		result <- sci(mini.raster) 
+		newvar <- rbind(newvar, result)
+	}
+  newvar <- as_tibble(newvar)
+	check.o <- cbind(check.temp, newvar) %>%
+		mutate(newvar = unlist(V1), .keep = "unused")
+```
+
+- sdq: ssf.min for 2020, good
+```{r ssf-sdq}
+set.seed(3214)
+row.checks <- sample(nrow(ssf.2020), 10)
+
+check.p <- ssf.2020[row.checks, c(1:9, 50:54)]
+
+scale = scales[2] # change and check
+  check.temp <- check.p %>%
+			st_as_sf(coords = c("x2_", "y2_"), crs = 32610) %>%
+			st_buffer(scale)
+  newvar <- list()
+	for (j in 1:nrow(check.temp)) {
+		mini.extent <- extent(check.temp[j,])
+		mini.raster <- crop(ch.2020, mini.extent)
+		result <- sdq(mini.raster) 
+		newvar <- rbind(newvar, result)
+	}
+  newvar <- as_tibble(newvar)
+	check.p <- cbind(check.temp, newvar) %>%
+		mutate(newvar = unlist(V1), .keep = "unused")
+```
+
+- sf: ssf.hr for 2017, perfect
+```{r ssf-sf}
+set.seed(45678)
+row.checks <- sample(nrow(ssf.2017), 10)
+
+check.q <- ssf.2017[row.checks, c(1:9, 55:60)]
+
+sf.2017 <- raster(here("data-private", "cfo_surfacefuels_summer_2017.tif"))
+
+for (scale in scales) {
+  newvar <- extract(sf.2017, check.q[,c("x2_", "y2_")], fun = mean, buffer = scale, weights = T)
+  check.q <- cbind(check.q, newvar)
+}
+```
+
+- extra checks: sf for mxm ssf for 2019 AND 2020 bc it looks weird
+```{r}
+set.seed(0902)
+
+row.checks <- sample(nrow(ssf.2019), 15)
+check.q2 <- ssf.2019[row.checks, c(1:9, 55:60)]
+sf.2019 <- raster(here("data-private", "cfo_surfacefuels_summer_2019.tif"))
+
+for (scale in scales) {
+  newvar <- extract(sf.2019, check.q2[,c("x2_", "y2_")], fun = mean, buffer = scale, weights = T)
+  check.q2 <- cbind(check.q2, newvar)
+} # good
+
+
+set.seed(09021)
+
+row.checks <- sample(nrow(ssf.2020), 15)
+check.q3 <- ssf.2020[row.checks, c(1:9, 55:60)]
+sf.2020 <- raster(here("data-private", "cfo_surfacefuels_summer_2020.tif"))
+
+for (scale in scales) {
+  newvar <- extract(sf.2020, check.q3[,c("x2_", "y2_")], fun = mean, buffer = scale, weights = T)
+  check.q3 <- cbind(check.q3, newvar)
+} # also good!
+```
+
+
+- sq: ssf.hr for 2018: perfect
+```{r ssf-sq}
+set.seed(7899)
+row.checks <- sample(nrow(ssf.2018), 10)
+
+ch.2018 <- raster(here("data-private", "cfo_canopyheight_summer_2018.tif"))
+
+check.r <- ssf.2018[row.checks, c(1:9, 61:65)]
+
+scale = scales[6] # change and check
+  check.temp <- check.r %>%
+			st_as_sf(coords = c("x2_", "y2_"), crs = 32610) %>%
+			st_buffer(scale)
+  newvar <- list()
+	for (j in 1:nrow(check.temp)) {
+		mini.extent <- extent(check.temp[j,])
+		mini.raster <- crop(ch.2018, mini.extent)
+		result <- sq(mini.raster) 
+		newvar <- rbind(newvar, result)
+	}
+  newvar <- as_tibble(newvar)
+	check.r <- cbind(check.temp, newvar) %>%
+		mutate(newvar = unlist(V1), .keep = "unused")
+```
+

@@ -1,0 +1,260 @@
+---
+title: "reproductive data cleaning/organization"
+author: "Jessalyn Ayars"
+date: "10/20/2021"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(here)
+library(readxl)
+library(lubridate)
+library(sf)
+library(spData)
+```
+
+read-in
+```{r}
+repro1 <- read_csv(here('data-private', "sierra_gps_repro.csv"))
+```
+
+### cleaning reproductive data
+```{r}
+# switching starred usfws entries to na's
+star_f <- which(repro1$F_USFWS == "*")
+qmark_f <- which(repro1$F_USFWS == "?")
+star_m <- which(repro1$M_USFWS == "*")
+repro1$F_USFWS[star_f] <- NA
+repro1$M_USFWS[star_m] <- NA
+repro1$F_USFWS[qmark_f] <- NA
+
+# switching unknown repro status to NA's
+unkn <- which(repro1$Repro == "UN")
+repro1$Repro[unkn] <- NA
+
+# making utm zones 10 and 11 into sf objects separately then converting to cfo location crs
+repro.11 <- filter(repro1, Zone == 11) %>%
+  st_as_sf(coords = c("UTME83", "UTMN83"), crs = 26911, remove = FALSE) %>%
+  st_transform(crs = 32610)
+repro.10 <- filter(repro1, Zone == 10)  %>%
+  st_as_sf(coords = c("UTME83", "UTMN83"), crs = 26910, remove = FALSE) %>%
+  st_transform(crs = 32610) 
+
+# adding zones back together
+repro <- rbind(repro.10, repro.11) %>%
+  # new columns of geometry for future use
+  mutate(long_utm = unlist(map(geometry,1)),
+           lat_utm = unlist(map(geometry,2))) %>%
+  dplyr::select(-geometry) %>% 
+  # date to lubridate format
+  mutate(ac_date = mdy(Activity_Center_Date)) %>%
+  # cut whitespace from usfws id's
+  mutate(M_USFWS = str_replace_all(M_USFWS, " ", "")) %>%
+  mutate(F_USFWS = str_replace_all(F_USFWS, " ", "")) %>%
+  # making characters factors
+  mutate(across(where(is.character), as.factor)) %>%
+  # drop na's for repro
+  drop_na(Repro) %>%
+  # variable for whether fledging was successful
+  mutate(fledging_yn = recode_factor(Repro, "NT" = "n", "NO" = "n", 
+                                    "FN" = "n", "NJ" = "n", "NY" = "n", "1F" = "y", 
+                                    "2F" = "y", "3F" = "y")) %>%
+  mutate(fledging_yn = ifelse(fledging_yn == "y", 1, 0)) %>%
+  # variable for whether nesting was attempted
+  mutate(nesting_yn = recode_factor(Repro, "NT" = "y", "NO" = "n", 
+                                    "FN" = "y", "NJ" = "y", "NY" = "y", "1F" = "y", 
+                                    "2F" = "y", "3F" = "y")) %>%
+  mutate(nesting_yn = ifelse(nesting_yn == "y", 1, 0)) %>%
+  # setting up number of fledglings variable
+  mutate(n_fledglings = 0)
+# assigning number of fledglings
+one <- which(repro$Repro == "1F")
+repro$n_fledglings[one] <- 1
+two <- which(repro$Repro == "2F")
+repro$n_fledglings[two] <- 2
+three <- which(repro$Repro == "3F")
+repro$n_fledglings[three] <- 3
+```
+
+#### bringing in SPI 2017 owls 
+```{r}
+repro2 <- read_csv(here("data-private", "spow-repro-2017.csv"))
+better.terr.names <- read_csv(here("data-private", "2017_captures_pptags.csv")) %>%
+  mutate(tag_number = as.character(tag_number))
+
+# make year column saying 2017 and then join by year and tag number
+spi.2017.repro6 <- repro2 %>% 
+  mutate(tag_number = as.character(`Serial Number`)) %>%
+  mutate(Year = 2017) %>%
+  left_join(better.terr.names, by = c("tag_number")) %>%
+  mutate(Territory = short_territory_name)
+
+# other repro metrics
+spi.2017.repro <- spi.2017.repro6 %>%
+  mutate(status = as.factor(`2017 Territory Status`)) %>%
+  mutate(hatching_yn = (recode_factor(status, "nesting pair" = 1, "Nesting pair" = 1, "Nesting Pair" = 1, "nesting pair, failed nest" = 0, "nesting pair, possible failed" = 0, "non-nesting pair" = 0, "pair" = 0, "Pair" = 0, "Resident single" = 0))) %>%
+  mutate(hatching_yn = ifelse(hatching_yn == 1, 1, 0)) %>%
+  mutate(nesting_yn = (recode_factor(status, "nesting pair" = 1, "Nesting pair" = 1, "Nesting Pair" = 1, "nesting pair, failed nest" = 1, "nesting pair, possible failed" = 1, "non-nesting pair" = 0, "pair" = 0, "Pair" = 0, "Resident single" = 0))) %>%
+  mutate(nesting_yn = ifelse(nesting_yn == 1, 1, 0)) %>%
+# put males and females on the same row to match other repro data
+  mutate(Sex = tolower(Sex)) %>%
+  pivot_wider(names_from = Sex, values_from = Species) %>%
+  distinct(across(ID), .keep_all = TRUE) %>%
+# geometry
+  st_as_sf(coords = c("LON_27", "LAT_27"), crs = 4267) %>% 
+  st_transform(crs = 32610) %>%
+# new columns of geometry for future use
+  mutate(long_utm = unlist(map(geometry,1)),
+           lat_utm = unlist(map(geometry,2))) %>%
+# study
+  mutate(Study = ifelse(WSA == "y", "WSA", NA))
+# n_fledglings
+nas <- which(is.na(spi.2017.repro$n_fledglings))
+spi.2017.repro$n_fledglings[nas] <- 0
+spi.2017.repro$Year <- 2017
+
+# correcting nest locations (as of 23/04/27)
+nest.patch <- read_csv(here("Data", "GPS", "Nest location issues_Ayars_04272023.csv"))
+MRC003.2017 <- which(spi.2017.repro$Territory == "MRC003" & spi.2017.repro$Year == 2017)
+spi.2017.repro$long_utm[MRC003.2017] <- filter(nest.patch, DIST_ID == "MRC003")$UTME
+spi.2017.repro$lat_utm[MRC003.2017] <- filter(nest.patch, DIST_ID == "MRC003")$UTMN
+
+MRC069.2017 <- which(spi.2017.repro$Territory == "MRC069" & spi.2017.repro$Year == 2017)
+spi.2017.repro$long_utm[MRC069.2017] <- filter(nest.patch, DIST_ID == "MRC069")$UTME
+spi.2017.repro$lat_utm[MRC069.2017] <- filter(nest.patch, DIST_ID == "MRC069")$UTMN
+
+SNC034.2017 <- which(spi.2017.repro$Territory == "SNC034" & spi.2017.repro$Year == 2017)
+spi.2017.repro$long_utm[SNC034.2017] <- filter(nest.patch, DIST_ID == "SNC034")$UTME
+spi.2017.repro$lat_utm[SNC034.2017] <- filter(nest.patch, DIST_ID == "SNC034")$UTMN
+```
+
+#### joining them together 
+```{r}
+repro.all <- full_join(repro, as_tibble(spi.2017.repro), by = c("Territory", "Year", "nesting_yn", "hatching_yn", "n_fledglings", "geometry", "long_utm", "lat_utm", "M_USFWS" = "male", "F_USFWS" = "female", "Study")) %>%
+  dplyr::select(Territory, Study, Year, M_USFWS, F_USFWS, long_utm, lat_utm, ac_date, nesting_yn, hatching_yn, n_fledglings, tag_number) %>%
+  distinct(Territory, Year, .keep_all = T)
+```
+
+#### adding missing USFWS IDs
+```{r}
+# updated data 23/10/26
+spi.bands <- read_csv(here("data-private", "CSO banding and resight _CRADA_10262023.csv")) %>%
+  rename(USFWS_ID = `Combined band/recapture/resight list.USFWS Band number`) %>%
+  mutate(sex = str_to_lower(ifelse(is.na(`Band Sex`), sex, `Band Sex`))) %>%
+  filter(is.na(sex) | sex != "female")
+
+test.band.match <- spi.bands %>%
+  drop_na(`Resight Data.USFWS Band number`) %>%
+  mutate(same = ifelse(USFWS_ID == `Resight Data.USFWS Band number`, "same", "mismatch")) # all match, good
+
+spi.bands.banded <- spi.bands %>%
+  select(USFWS_ID, `Banding year`, `First Site`, sex) %>%
+  rename(Year = `Banding year`,
+         Territory = `First Site`) %>%
+  drop_na()
+
+spi.bands.recap <- spi.bands %>%
+  select(USFWS_ID, `Recapture Date`, `Recapture site`, sex) %>%
+  mutate(Year = as.numeric(str_sub(`Recapture Date`, 7, 10)), .keep = "unused") %>%
+  rename(Territory = `Recapture site`) %>%
+  drop_na()
+
+spi.bands.resight <- spi.bands %>%
+  select(USFWS_ID, `Resight Year`, `Resight site`, sex) %>%
+  rename(Year = `Resight Year`,
+         Territory = `Resight site`) %>%
+  drop_na()
+
+spi.bands.long <- rbind(spi.bands.banded, spi.bands.recap, spi.bands.resight) %>%
+  unique()
+
+# manually patching territory names based on email from 23/11/8
+a = which(spi.bands.long$Territory == "CMC001")
+spi.bands.long$Territory[a] <- "BALDM"
+b = which(spi.bands.long$Territory == "CMC033")
+spi.bands.long$Territory[b] <- "BIGXM"
+c = which(spi.bands.long$Territory == "CMC113")
+spi.bands.long$Territory[c] <- "LEEKS"
+d = which(spi.bands.long$Territory == "STC006")
+spi.bands.long$Territory[d] <- "PLU0320"
+e = which(spi.bands.long$Territory == "STC084")
+spi.bands.long$Territory[e] <- "PLU0321"
+g = which(spi.bands.long$Territory == "BALDM")
+spi.bands.long$Territory[g] <- "CMC001"
+
+doubles <- spi.bands.long %>%
+  group_by(Year, Territory) %>%
+  mutate(num.owls = n()) %>%
+  filter(num.owls > 1)
+# 41 territory-years with two owls present, some two unknowns, some one male-one unknown, some male-male
+
+repro.all.test <- left_join(repro.all, spi.bands.long, by = c("Territory", "Year")) %>%
+  mutate(M_USFWS = ifelse((str_length(M_USFWS) > 3 & !is.na(M_USFWS)), M_USFWS, USFWS_ID)) %>%
+  mutate(patched = ifelse(is.na(USFWS_ID), "no", "yes")) 
+
+doubles.2 <- repro.all.test %>%
+  select(Year, Territory, M_USFWS, USFWS_ID, sex) %>%
+  group_by(Year, Territory) %>%
+  mutate(num.owls = n()) %>%
+  filter(num.owls > 1) # remove 'unknowns'
+
+repro.all.3 <- left_join(repro.all, spi.bands.long, by = c("Territory", "Year")) %>%
+  mutate(M_USFWS = ifelse((str_length(M_USFWS) > 3 & !is.na(M_USFWS)), M_USFWS, USFWS_ID)) %>%
+  mutate(patched = ifelse(is.na(USFWS_ID), "no", "yes")) %>%
+  filter(is.na(sex) | sex == "male") %>%
+  select(-USFWS_ID, -sex)
+
+# checking
+sum(is.na(repro.all$M_USFWS))
+sum(is.na(repro.all.3$M_USFWS)) # 19 missing (BEST YET)
+
+# new data 23/11/17
+spi.bands.2 <- read_csv(here("Data", "GPS", "JA_11172023.csv")) %>%
+  mutate(USFWS_ID = str_replace(`Band #`, "-", ""), .keep = "unused") %>%
+  rename(Territory = SPI_ID) %>% 
+  drop_na(USFWS_ID) %>%
+  filter(is.na(Sex) | Sex == "male")
+
+## testing
+doubles.2 <- spi.bands.2 %>%
+  group_by(Year, Territory) %>%
+  mutate(num.owls = n()) %>%
+  filter(num.owls > 1) # only duplicates where birds were banded and recaptured in the same year
+
+spi.bands.3 <- spi.bands.2 %>% select(-Territory) %>%
+  rename(Territory = `CDFW ID`)
+
+doubles.3 <- spi.bands.3 %>%
+  group_by(Year, Territory) %>%
+  mutate(num.owls = n()) %>%
+  filter(num.owls > 1)
+repro.all.5 <- left_join(repro.all.3, spi.bands.3, by = c("Territory", "Year")) %>%
+  mutate(M_USFWS = ifelse((str_length(M_USFWS) > 3 & !is.na(M_USFWS)), M_USFWS, USFWS_ID)) %>%
+  mutate(patched.2 = ifelse(is.na(USFWS_ID) | patched == "yes", "no", "yes")) %>%
+  select(-USFWS_ID, -Sex)
+
+## checking
+sum(is.na(repro.all.5$M_USFWS)) # got 4 more owls!! (19 missing)
+```
+
+### writing to csv for use in owl count before filtering out females/not in gps data
+```{r}
+write_csv(repro.all.5, here("data-private", "repro_with_females-etc.csv"))
+repro.all <- read_csv(here("data-private", "repro_with_females-etc.csv"))
+```
+
+```{r}
+gps.full <- read_csv(here("data-private", "gps_with_females-etc.csv")) 
+gps.no.f <- gps.full %>%
+  filter(sex == "M")
+repro.final <- repro.all %>%
+  semi_join(gps.no.f, by = c("Territory", "Year")) %>% 
+  ungroup()
+```
+
+### write to .csv for future use
+```{r}
+write_csv(repro.final, here("data-private", "repro_cleaned.csv"), append = FALSE) 
+```
+

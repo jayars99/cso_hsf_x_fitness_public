@@ -1,0 +1,192 @@
+---
+title: "data organization/cleaning for location data"
+author: "Jessalyn Ayars"
+date: "10/20/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(here)
+library(readxl)
+library(lubridate)
+library(sf)
+library(tibbletime)
+library(amt)
+```
+
+## data
+
+```{r read-in}
+test_data_SPI <- read_csv(here('data-private', "sierra_gps_SPI.csv"))
+SPI <- test_data_SPI %>%
+  dplyr::select(-'id...1') %>%
+  rename("Territory" = 'short_territory_name', 'tag_number' = "tag_number...21", 'telemetry_model' = "telemetry_model...23", 'gps_record_id' = "id...24", 'num_sats' = 'satellite', ) %>%
+  dplyr::select(Territory, pac_id, usfws_id, sex, date_gmt, time_gmt, tag_number, attach_type, telemetry_model, gps_record_id, latitude, longitude, fix, altitude, duration, dop, num_sats, speed_knots, search_time, voltage, speed_km_hr, azimuth_dtn, pdop, hdop, vdop, sats_in_view, snr_avg_db, delta_s, e_res, eldorado_demography_type, is_king_fire_gavin, is_king_fire_southern, is_sierra_nevada_tagging, is_sierra_demography, is_lassen_demography, is_yosemite, is_sequoia_kings, county, land_owner, forest, district) %>%
+  mutate(data.origin = "SPI")
+
+test_data_other <- read_csv(here('data-private', "sierra_gps_noSPI.csv")) %>%
+  mutate(data.origin = "not.SPI")
+test_data <- rbind(SPI, test_data_other) 
+tmfc <- read_xlsx(here('data-private', "telemetry_model_field_corrected.xlsx"))
+
+# correcting telemetry field
+data1 <- left_join(test_data, tmfc, by = "gps_record_id") %>%
+  mutate(telemetry_model = ifelse(is.na(telemetry_model.y), telemetry_model.x, telemetry_model.y)) %>%
+  dplyr::select(-telemetry_model.x, -telemetry_model.y)
+```
+
+### cleaning location data
+
+```{r location_cleaning}
+lon_0 <- as.integer(which(data1$longitude == 0))
+data1 <- data1[-lon_0,]
+data <- data1 %>%
+# parsing dates/times into lubridate format
+  mutate(time_gmt = as.character(time_gmt)) %>%
+  mutate(datetime_gmt = mdy_hms(str_c(date_gmt, " ", time_gmt), tz = "GMT")) %>%
+  # switching to pacific time 
+  mutate(datetime = with_tz(datetime_gmt, "US/Pacific")) %>%
+  # switching to factors
+  mutate(across(where(is.character), as.factor)) %>%
+  # make usfws id a factor
+  mutate(usfws_id = as.factor(usfws_id)) %>%
+  # time of day w/o date (in progress)
+  mutate(hour_daily = hour(datetime)) %>%
+  # month to see if daylight savings will be an issue (nope)
+  mutate(month_obs = as.factor(month(datetime))) %>%
+  # getting the number of fixes by bird and type of telemetry model (assuming one device per bird per season/year)
+  group_by(usfws_id, telemetry_model) %>%
+  mutate(n_fixes = n()) %>%
+  # releveling telemetry model with redundant names
+  mutate(telemetry_model = recode_factor(telemetry_model, 
+                                         "SWIFT PP 120" = "Swift PP 120")) %>%
+  # relevel territory MIDMD to PLCWA
+  mutate(Territory = recode_factor(Territory, "MIDMD" = "PLCWA")) %>%
+  # filter out bad locations based on DOP < 5 /voltage > 3/6 /numsats >= 3. removed ~3,000 obs
+  dplyr::filter(is.na(num_sats)|num_sats >= 3) %>%
+  dplyr::filter(is.na(dop)|dop < 5) %>%
+  dplyr::filter(is.na(hdop)|hdop < 5) %>%
+  dplyr::filter(is.na(vdop)|vdop < 5) %>%
+  dplyr::filter(is.na(voltage)|voltage > 3.6) %>%
+  
+  # make an sf object for plotting purposes
+  drop_na(latitude, longitude) %>%
+  st_as_sf(coords = c("longitude", "latitude"), crs = st_crs(4326), remove = FALSE) %>%
+  st_transform(32610) %>% 
+  # getting utm columns so that track can use it
+  mutate(long_utm = unlist(map(geometry,1)),
+           lat_utm = unlist(map(geometry,2))) %>%
+  dplyr::select(-geometry) 
+
+duplicated <- data %>%
+  filter(usfws_id == "195722595" | usfws_id == "138784870" | usfws_id == "195738005") %>%
+  distinct(datetime, .keep_all = TRUE) 
+
+unduplicated <- data %>%
+  filter(usfws_id != "195722595" & usfws_id != "138784870" & usfws_id != "195738005") %>%
+  rbind(duplicated)
+```
+
+### filtering out daylight hours
+```{r}
+study_days <- unique(date(unduplicated$datetime))
+
+# 7-19:00
+gps_data_simplified_post <- unduplicated %>%
+  arrange(datetime) %>%
+  as_tbl_time(index = datetime)
+to_remove <- slice(gps_data_simplified_post, 0)
+for (study_day in study_days) {
+  study_day = as.Date(study_day, origin = "1970-01-01")
+  morning <- ymd_hms(str_c(as.character(study_day), "07:00:00"), tz = "US/Pacific")
+  evening <- ymd_hms(str_c(as.character(study_day), "19:00:00"), tz = "US/Pacific")
+  to_remove.temp <- filter_time(gps_data_simplified_post, morning ~ evening)
+  to_remove <- rbind(to_remove, to_remove.temp)
+}
+
+gps_data_simplified_post <- anti_join(gps_data_simplified_post, to_remove, by = "gps_record_id")
+```
+
+### making an effort variable based on lag time
+
+also adding rsf vs ssf variable based on fixes per day
+```{r}
+gps_data_effort <- gps_data_simplified_post %>%
+  mutate(Year = year(datetime)) %>%
+  arrange(datetime) %>%
+  group_by(Year, usfws_id) %>%
+  mutate(lag1 = as.numeric(difftime(datetime, lag(datetime), units = "mins"))) %>% # some are NAs because they are the beginning
+  mutate(effort = 1/(mean(lag1, na.rm = TRUE))) 
+```
+
+### assigning owls to each analysis
+```{r}
+test.track <- gps_data_effort %>%
+  ungroup() %>%
+  make_track(long_utm, lat_utm, datetime, Territory, usfws_id, Year)
+
+# summarizing sampling rates to determine how i should divvy this up
+test.rates <- test.track %>%
+    summarize_sampling_rate_many(c("usfws_id", "Year"), time_unit = "min")
+
+test.rates.tojoin <- test.rates %>%
+  dplyr::select(usfws_id, median, Year)
+
+gps_data.xsf <- gps_data_effort %>%
+  left_join(test.rates.tojoin, by = c("usfws_id", "Year")) %>%
+  rename(median.sampling.rate = median) %>%
+  mutate(which.xsf = NA)
+
+rsf <- which(gps_data.xsf$median.sampling.rate > 500)
+ssf.hr <- which(gps_data.xsf$median.sampling.rate < 500 & gps_data.xsf$median.sampling.rate > 30)
+ssf.min <- which(gps_data.xsf$median.sampling.rate < 30)
+
+gps_data.xsf[rsf,]$which.xsf <- "rsf"
+gps_data.xsf[ssf.hr,]$which.xsf <- "ssf.hr"
+gps_data.xsf[ssf.min,]$which.xsf <- "ssf.min"
+```
+
+### writing .csv for use in owl count before filtering out females/no repro owls
+```{r}
+write_csv(gps_data.xsf, here("data-private", "gps_with_females-etc.csv"))
+```
+
+```{r}
+gps.data <- read_csv(here("data-private", "gps_with_females-etc.csv"))
+```
+
+
+### getting rid of no-repro owls and females
+- to make not circular, reference pre-gps-filtered repro data
+```{r}
+# how many owls do we have
+owls.pre <- gps.data %>%
+  filter(sex == "M") %>%
+  dplyr::select(usfws_id, Year) %>%
+  distinct() # 104 owls
+repro_full <- read_csv(here("Data", "output_data", "repro_with_females-etc.csv")) %>%
+  mutate(tag_number = as.character(tag_number))
+gps.data.repro <- gps.data %>%
+  semi_join(repro_full, by = c("Territory", "Year")) %>%
+  dplyr::filter(sex == "M") %>%
+  ungroup() %>%
+  as_tibble() 
+owls.post <- gps.data.repro %>%
+  dplyr::select(usfws_id, Year) %>%
+  distinct() # 98 owls. ok! only 6 missing repro data
+owls.left <- anti_join(gps.data, gps.data.repro) %>%
+  dplyr::select(Year, Territory, pac_id, tag_number, usfws_id, land_owner, sex) %>%
+  filter(sex == "M") %>%
+  distinct()
+```
+
+
+### write finished dataset to .csv
+```{r}
+write_csv(gps.data.repro, here("Data", "output_data", "gps_cleaned.csv"), append = FALSE)
+```
+

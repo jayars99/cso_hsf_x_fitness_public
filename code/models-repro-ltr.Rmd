@@ -1,0 +1,141 @@
+---
+title: "reproductive outcome model selection"
+author: "Jessalyn Ayars"
+date: "2022-08-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(here)
+library(tidyverse)
+library(lme4)
+source(here("code", "misc_functions.R"))
+```
+
+
+## data
+```{r}
+rsf.data.lt <- read_csv(here("data-public", "ltr_rsf.csv")) %>%
+  mutate(Year = as.factor(Year)) %>%
+  filter(nesting_yn == 1) %>%
+  mutate(across(c(cc.60:sq.60, ppt.total, tmean.mean, nest.sdq), ~ as.numeric(scale(.x)), .names = "{.col}.scaled"))
+
+#ssf.hr.data.lt <- read_csv(here("Data", "output_data", "ltr_ssf_hr.csv")) %>%
+#  mutate(Year = as.factor(Year)) # too tiny
+
+ssf.min.data.lt <- read_csv(here("data-public", "ltr_ssf_min.csv")) %>%
+  mutate(Year = as.factor(Year)) %>%
+  filter(nesting_yn == 1) %>%
+  mutate(across(c(aspect.0:sq.30, ppt.total, tmean.mean, nest.sdq), ~ as.numeric(scale(.x)), .names = "{.col}.scaled"))
+``` 
+
+## long term reproductive outcomes
+
+### rsf
+```{r}
+ltr.rsf.cc <- lm(young.yrly ~ cc.60.scaled, data = rsf.data.lt)
+summary(ltr.rsf.cc) 
+
+ltr.rsf.cc.sq <- lm(young.yrly ~ cc.60.sq.scaled, data = rsf.data.lt)
+summary(ltr.rsf.cc.sq) 
+
+ltr.rsf.ch <- lm(young.yrly ~ ch.30.scaled, data = rsf.data.lt)
+summary(ltr.rsf.ch)
+
+ltr.rsf.ch.sq <- lm(young.yrly ~ ch.30.sq.scaled, data = rsf.data.lt)
+summary(ltr.rsf.ch.sq)
+
+ltr.rsf.lfd <- lm(young.yrly ~ lfd.500.scaled, data = rsf.data.lt)
+summary(ltr.rsf.lfd)
+
+ltr.rsf.s10z <- lm(young.yrly ~ s10z.120.scaled, data = rsf.data.lt)
+summary(ltr.rsf.s10z)
+
+ltr.rsf.sci <- lm(young.yrly ~ sci.30.scaled, data = rsf.data.lt)
+summary(ltr.rsf.sci)
+
+ltr.rsf.sdq <- lm(young.yrly ~ sdq.60.scaled, data = rsf.data.lt)
+summary(ltr.rsf.sdq)  
+
+ltr.rsf.sf <- lm(young.yrly ~ sf.60.scaled, data = rsf.data.lt)
+summary(ltr.rsf.sf)  
+
+ltr.rsf.sq <- lm(young.yrly ~ sq.60.scaled, data = rsf.data.lt)
+summary(ltr.rsf.sq)  
+```
+
+#### short format results
+```{r}
+ltr.rsf <- tibble(Metric = rep(NA, 10), Intercept = rep(NA, 10), Est = rep(NA, 10), Std.Err = rep(NA, 10), P.base = rep(NA, 10))
+ltr.rsf.models <- list(ltr.rsf.sq, ltr.rsf.sf, ltr.rsf.sdq, ltr.rsf.sci, ltr.rsf.s10z, ltr.rsf.lfd, ltr.rsf.ch.sq, ltr.rsf.ch, ltr.rsf.cc.sq, ltr.rsf.cc)
+
+for (i in 1:10) {  
+  ltr.rsf$Metric[i] <- str_sub(as.character(ltr.rsf.models[[i]]$terms[[3]]), start = 1, end = -8) 
+  ltr.rsf$Intercept[i] <- coef(summary(ltr.rsf.models[[i]]))[1,1]
+  ltr.rsf$Est[i] <- coef(summary(ltr.rsf.models[[i]]))[2,1]
+  ltr.rsf$Std.Err[i] <- coef(summary(ltr.rsf.models[[i]]))[2,2]
+  ltr.rsf$P.base[i] <- coef(summary(ltr.rsf.models[[i]]))[2,4]
+}
+
+ltr.rsf <- ltr.rsf %>%
+  mutate(P.fdr = p.adjust(P.base, method = "fdr"))
+
+# save
+write_csv(ltr.rsf, here("results", "ltr_rsf.csv"))
+```
+
+
+### mxm ssf
+
+```{r}
+ltr.ssf.min.cc <- lm(young.yrly ~ cc.60.scaled, data = ssf.min.data.lt)
+summary(ltr.ssf.min.cc) 
+
+ltr.ssf.min.cc.sq <- lm(young.yrly ~ cc.60.sq.scaled, data = ssf.min.data.lt)
+summary(ltr.ssf.min.cc.sq) 
+
+ltr.ssf.min.ch <- lm(young.yrly ~ ch.60.scaled, data = ssf.min.data.lt)
+summary(ltr.ssf.min.ch)
+
+ltr.ssf.min.ch.sq <- lm(young.yrly ~ ch.60.sq.scaled, data = ssf.min.data.lt)
+summary(ltr.ssf.min.ch.sq)
+
+ltr.ssf.min.lfd <- lm(young.yrly ~ lfd.300.scaled, data = ssf.min.data.lt)
+summary(ltr.ssf.min.lfd)
+
+ltr.ssf.min.s10z <- lm(young.yrly ~ s10z.60.scaled, data = ssf.min.data.lt)
+summary(ltr.ssf.min.s10z)
+
+ltr.ssf.min.sci <- lm(young.yrly ~ sci.60.scaled, data = ssf.min.data.lt)
+summary(ltr.ssf.min.sci)
+
+ltr.ssf.min.sdq <- lm(young.yrly ~ sdq.30.scaled, data = ssf.min.data.lt)
+summary(ltr.ssf.min.sdq)
+
+ltr.ssf.min.sf <- lm(young.yrly ~ sf.60.scaled, data = ssf.min.data.lt)
+summary(ltr.ssf.min.sf)
+
+ltr.ssf.min.sq <- lm(young.yrly ~ sq.30.scaled, data = ssf.min.data.lt)
+summary(ltr.ssf.min.sq)
+```
+
+#### short format results
+```{r}
+ltr.ssf.min <- tibble(Metric = rep(NA, 10), Intercept = rep(NA, 10), Est = rep(NA, 10), Std.Err = rep(NA, 10), P.base = rep(NA, 10))
+ltr.ssf.min.models <- list(ltr.ssf.min.sq, ltr.ssf.min.sf, ltr.ssf.min.sdq, ltr.ssf.min.sci, ltr.ssf.min.s10z, ltr.ssf.min.lfd, ltr.ssf.min.ch.sq, ltr.ssf.min.ch, ltr.ssf.min.cc.sq, ltr.ssf.min.cc)
+
+for (i in 1:10) { 
+  ltr.ssf.min$Metric[i] <- str_sub(as.character(ltr.ssf.min.models[[i]]$terms[[3]]), start = 1, end = -8) 
+  ltr.ssf.min$Intercept[i] <- coef(summary(ltr.ssf.min.models[[i]]))[1,1]
+  ltr.ssf.min$Est[i] <- coef(summary(ltr.ssf.min.models[[i]]))[2,1]
+  ltr.ssf.min$Std.Err[i] <- coef(summary(ltr.ssf.min.models[[i]]))[2,2]
+  ltr.ssf.min$P.base[i] <- coef(summary(ltr.ssf.min.models[[i]]))[2,4]
+}
+
+ltr.ssf.min <- ltr.ssf.min %>%
+  mutate(P.fdr = p.adjust(P.base, method = "fdr"))
+
+# save
+write_csv(ltr.ssf.min, here("results", "ltr_ssf-min.csv"))
+```

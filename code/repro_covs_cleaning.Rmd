@@ -1,0 +1,222 @@
+---
+title: "Wrangling reproductive covariates but mainly PRISM data"
+author: "Jessalyn Ayars"
+date: "2/4/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(raster)
+library(sf)
+library(here)
+library(geodiv)
+source(here("code", "misc_functions.R"))
+repro_data <- read_csv(here("data-private", "repro_cleaned.csv")) %>%
+    st_as_sf(coords = c("long_utm", "lat_utm"), crs = 32610, remove = FALSE) %>%
+    mutate(M_USFWS = as.character(M_USFWS)) %>% 
+    mutate(F_USFWS = as.character(F_USFWS)) %>% 
+    mutate(across(where(is.character), as.factor))
+select <- dplyr::select
+```
+
+
+## Weather covariates
+
+- average temperature over March, April, and May
+- total precipitation over March, April, and May
+- elevation
+- all of these will be @ nest site
+
+### 1. download all the data from PRISM
+
+### 2. clip all data to Sierra Nevada Bioregion
+
+```{r}
+# list of file names ending in .bil
+files <- list.files(here("data-private", "weather_data"), pattern = ".bil")
+good <- which(str_sub(files, -4, -1) == ".bil")
+
+bil.files <- files[good]
+
+testfile <- bil.files[10]
+test.type <- ifelse(str_detect(testfile, "ppt"), "ppt", "tmean")
+test.ym <- str_sub(testfile, -15, -9) 
+test.newname <- str_c(test.type, test.ym, ".tif")
+
+
+# extent to clip with
+bioregion.polygon.nad83 <- st_read(here("data-private", "SNC_Boundary.shp")) %>% st_transform(4269)
+bioregion.extent <- extent(bioregion.polygon.nad83)
+
+# loop to get through and properly name all these
+for (filename in bil.files) {
+  type <- ifelse(str_detect(filename, "ppt"), "ppt", "tmean")
+  year.month <- str_sub(filename, start = -15, end = -9)
+  newname <- str_c(type, year.month, ".tif")
+  clip_nad83(here("data-private", "weather_data", filename), here("Data", "Covariates", "weather_data", newname), bioregion.extent)
+}  
+```
+
+
+### 3. extract to repro_data
+```{r weather-extraction}
+years <- c(2015, 2016, 2017, 2018, 2019, 2020)
+repro.post <- slice(repro_data, 0)
+tif.files <- list.files(here("data-private", "weather_data"), pattern = ".tif")
+covs <- dplyr::select(repro_data, Territory, Year) %>% slice(0) %>% as_tibble()
+for (year in years) {
+  annual.repro <- filter(repro_data, Year == year)
+  annual.rasters <- tif.files[which(str_detect(tif.files, as.character(year)))] 
+  covs2 <- dplyr::select(annual.repro, Territory, Year) %>% as_tibble()
+  for(item in annual.rasters) {
+    column <- extract(raster(here("data-private", "weather_data", item)), annual.repro)
+    covs2 <- cbind(covs2, column) 
+  }
+  covs <- rbind(covs, covs2)
+}
+covs.end <- covs %>% as_tibble(.name_repair = "unique") %>% dplyr::select(-geometry) 
+colnames(covs.end) <- c("Territory", "Year", "ppt03", "ppt04", "ppt05", "tmean03", "tmean04", "tmean05")
+covs.end2 <- covs.end %>%
+  mutate(ppt.total = (ppt03 + ppt04 + ppt05)) %>%
+  mutate(tmean.mean = (tmean03 + tmean04 + tmean05)/3)
+repro.post <-left_join(repro_data, covs.end2, by = c("Territory", "Year")) 
+```
+
+#### elevation of nest site
+```{r elevation-ecoregion-extraction}
+elev <- raster(here("data-private", "snb_DEM.tif"))
+ca.ecoregions <- st_read(here("data-private", "ca_eco_l4.shp")) %>%
+  st_transform(32610)
+repro.post2 <- repro.post %>%
+  mutate(elevation = extract(elev, repro.post)) %>%
+  st_intersection(ca.ecoregions) %>%
+  dplyr::select(-OBJECTID, -NA_L3CODE, -NA_L3NAME, -NA_L2CODE, -NA_L2NAME, -NA_L1CODE, -NA_L1NAME, -STATE_NAME, -EPA_REGION, -L4_KEY, -L3_KEY, -L2_KEY, -L1_KEY, -Shape_Leng, -Shape_Area)
+```
+
+#### topographic roughness around nest site
+```{r}
+snb.dem <- raster(here("data-private", "snb_DEM.tif"))
+
+repro.3 <- repro.post2 %>%
+	st_as_sf(coords = c("long_utm", "lat_utm"), crs = 32610, remove = FALSE) %>%
+  st_transform(4269) %>%
+  st_buffer(300)
+
+newvar <- list()
+for (i in 1:nrow(repro.3)) {
+  mini.extent <- extent(repro.3[i,])
+	mini.raster <- crop(snb.dem, mini.extent)
+  result <- sdq(mini.raster)
+  newvar <- rbind(newvar, result)
+}
+newvar <- as_tibble(newvar)
+repro.4 <- cbind(repro.3, newvar) %>%
+	mutate(nest.sdq = unlist(V1), .keep = "unused")
+```
+
+### 4. write .csv
+
+```{r}
+write_csv(repro.4, here("data-private", "repro_cleaned_covs.csv"))
+repro.4 <- load_repro_data()
+```
+
+### 5. patch to correct errors in several nest site locations
+```{r}
+nest.patch <- read_csv(here("data-private", "Nest location issues_Ayars_04272023.csv"))
+repro.new <- read_csv(here("data-private", "repro_cleaned.csv")) %>%
+    st_as_sf(coords = c("long_utm", "lat_utm"), crs = 32610, remove = FALSE) %>%
+    mutate(M_USFWS = as.character(M_USFWS)) %>% 
+    mutate(F_USFWS = as.character(F_USFWS)) %>% 
+    mutate(across(where(is.character), as.factor))
+repro.tofix <- repro.new %>% semi_join(nest.patch, by = c("Territory" = "DIST_ID", "Year"))
+
+ppt.17.mar <- raster(here("data-private", "weather_data", "ppt_201703.tif"))
+ppt.17.apr <- raster(here("data-private", "weather_data", "ppt_201704.tif"))
+ppt.17.may <- raster(here("data-private", "weather_data", "ppt_201705.tif"))
+t.17.mar <- raster(here("data-private", "weather_data", "tmean_201703.tif"))
+t.17.apr <- raster(here("data-private", "weather_data", "tmean_201704.tif"))
+t.17.may <- raster(here("data-private", "weather_data", "tmean_201705.tif"))
+elev <- raster(here("data-private", "snb_DEM.tif"))
+ca.ecoregions <- st_read(here("data-private", "ca_eco_l4.shp")) %>%
+  st_transform(32610)
+
+repro.tofix.2 <- repro.tofix %>%
+  mutate(ppt03 = extract(ppt.17.mar, repro.tofix[,6:7])) %>%
+  mutate(ppt04 = extract(ppt.17.apr, repro.tofix[,6:7])) %>%
+  mutate(ppt05 = extract(ppt.17.may, repro.tofix[,6:7])) %>%
+  mutate(tmean03 = extract(t.17.mar, repro.tofix[,6:7])) %>%
+  mutate(tmean04 = extract(t.17.apr, repro.tofix[,6:7])) %>%
+  mutate(tmean05 = extract(t.17.may, repro.tofix[,6:7])) %>%
+  mutate(ppt.total = ppt03 + ppt04 + ppt05) %>%
+  mutate(tmean.mean = (tmean03 + tmean04 + tmean05)/3) %>%
+  mutate(elevation = extract(elev, repro.tofix[,6:7])) %>%
+  st_intersection(ca.ecoregions) %>%
+  select(-OBJECTID, -NA_L3CODE, -NA_L3NAME, -NA_L2CODE, -NA_L2NAME, -NA_L1CODE, -NA_L1NAME, -STATE_NAME, -EPA_REGION, -L4_KEY, -L3_KEY, -L2_KEY, -L1_KEY, -Shape_Leng, -Shape_Area)
+
+snb.dem <- raster(here("data-private", "snb_DEM.tif"))
+
+repro.tofix.3 <- repro.tofix.2 %>%
+	st_as_sf(coords = c("long_utm", "lat_utm"), crs = 32610, remove = FALSE) %>%
+  st_transform(4269) %>%
+  st_buffer(300)
+
+newvar <- list()
+for (i in 1:nrow(repro.tofix.3)) {
+  mini.extent <- extent(repro.tofix.3[i,])
+	mini.raster <- crop(snb.dem, mini.extent)
+  result <- sdq(mini.raster)
+  newvar <- rbind(newvar, result)
+}
+newvar <- as_tibble(newvar)
+repro.tofix.4 <- cbind(repro.tofix.3, newvar) %>%
+	mutate(nest.sdq = unlist(V1), .keep = "unused")
+
+repro.fixed <- select(as_tibble(repro.4), -geometry) %>% anti_join(select(as_tibble(repro.tofix), -geometry), by = c("Territory", "Year")) %>%
+  rbind(select(as_tibble(repro.tofix.4), -geometry))
+
+write_csv(repro.fixed, here("data-private", "repro_cleaned_covs.csv"))
+```
+
+### 6. adding usfws ids
+```{r}
+repro.4 <- load_repro_data()
+usfws.patch <- as_tibble(repro_data) %>%
+  select(Territory, Year, M_USFWS) %>%
+  drop_na(M_USFWS)
+
+repro.5 <- left_join(repro.4, usfws.patch, by = c("Territory", "Year")) %>%
+  mutate(M_USFWS = ifelse(is.na(M_USFWS.x), as.character(M_USFWS.y), as.character(M_USFWS.x))) %>%
+  select(-M_USFWS.x, -M_USFWS.y) # FIXME location still in actual data
+
+sum(is.na(repro.4$M_USFWS)|repro.4$M_USFWS == "CSO")
+sum(is.na(repro.5$M_USFWS)) 
+
+write_csv(repro.5, here("data-private", "repro_cleaned_covs.csv"))
+```
+
+
+## bring in habitat selection coefficients
+```{r}
+repro.4 <- read_csv(here("data-private", "repro_cleaned_covs.csv")) %>%
+  dplyr::select(-long_utm, -lat_utm, -geometry)
+repro.rsf <- read_csv(here("data-public", "rsf_results.csv")) %>%
+  mutate(Territory = str_sub(id, start = 1, end = 5)) %>%
+  mutate(Year = as.numeric(str_sub(id, start = -4, end = -1))) %>%
+  left_join(repro.4, by = c("Territory", "Year")) 
+repro.ssf.hr <- read_csv(here("data-public", "ssf_hr_results.csv")) %>%
+  mutate(Territory = str_sub(id, start = 1, end = -6)) %>% 
+  mutate(Year = as.numeric(str_sub(id, start = -4, end = -1))) %>%
+  left_join(repro.4, by = c("Territory", "Year")) 
+repro.ssf.min <- read_csv(here("data-public", "ssf_min_results.csv")) %>%
+  mutate(Territory = str_sub(id, start = 1, end = -6)) %>%
+  mutate(Year = as.numeric(str_sub(id, start = -4, end = -1))) %>%
+  left_join(repro.4, by = c("Territory", "Year")) 
+
+write_csv(repro.rsf, here("data-public", "repro_rsf_covs.csv"))
+write_csv(repro.ssf.hr, here("data-public", "repro_ssf_hr_covs.csv"))
+write_csv(repro.ssf.min, here("data-public", "repro_ssf_min_covs.csv"))
+```
+

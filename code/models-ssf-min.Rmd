@@ -1,0 +1,115 @@
+---
+title: "modeling for minute-by-minute SSFs"
+author: "Jessalyn Ayars"
+date: "2022-08-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(here)
+library(tidyverse)
+library(glmmTMB)
+source(here("code", "misc_functions.R"))
+```
+
+ 
+## Data
+```{r}
+ssf.min.data <- read_csv(here("data-public", "ssf_min_final.csv")) %>%
+  mutate(id = str_c(Territory, ".", Year)) %>%
+  mutate(step.id.id = str_c(id, ".", step_id_))
+```
+
+## Checks
+- cc and ch, ch and s10z, sdq and sq are correlated > 0.6 by spearman
+```{r}
+pairs(ssf.min.data[c(5, 20:27)], lower.panel = panel.spearman)
+
+# random effects structure
+table(ssf.min.data$Territory, ssf.min.data$case_)
+table(ssf.min.data$Year, ssf.min.data$case_)
+table(ssf.min.data$id, ssf.min.data$case_) 
+```
+
+## Models
+```{r}
+ssf.min.cc <- glmmTMB(case_ ~ (1|step.id.id) + (1|id) + (0 + cc.60.scaled|id) + cc.60.scaled + (0 + I(cc.60.scaled^2)|id) + I(cc.60.scaled^2), 
+                       family=poisson, REML = T, data= ssf.min.data, doFit=FALSE) 
+ssf.min.cc$parameters$theta[1] = log(1e3) 
+ssf.min.cc$mapArg = list(theta=factor(c(NA, 1, 2,3))) 
+ssf.min.cc = glmmTMB:::fitTMB(ssf.min.cc) 
+summary(ssf.min.cc)  
+cc.60 <- coef(ssf.min.cc)$cond$id$cc.60.scaled
+cc.60.sq <- coef(ssf.min.cc)$cond$id[3]
+
+ssf.min.ch <- glmmTMB(case_ ~ (1|step.id.id) + (1|id) + (0 + ch.60.scaled|id) + ch.60.scaled + (0 + I(ch.60.scaled^2)|id) + I(ch.60.scaled^2), 
+                       family=poisson, REML = T, data= ssf.min.data, doFit=FALSE) 
+ssf.min.ch$parameters$theta[1] = log(1e3) 
+ssf.min.ch$mapArg = list(theta=factor(c(NA, 1, 2, 3))) 
+ssf.min.ch = glmmTMB:::fitTMB(ssf.min.ch) 
+summary(ssf.min.ch)   
+ch.60 <- coef(ssf.min.ch)$cond$id$ch.60.scaled
+ch.60.sq <- coef(ssf.min.ch)$cond$id[3] 
+
+ssf.min.lfd <- glmmTMB(case_ ~ (1|step.id.id) + (1|id) + (0 + lfd.300.scaled|id) + lfd.300.scaled, 
+                       family=poisson, REML = T, data= ssf.min.data, doFit=FALSE) 
+ssf.min.lfd$parameters$theta[1] = log(1e3) 
+ssf.min.lfd$mapArg = list(theta=factor(c(NA, 1, 2))) 
+ssf.min.lfd = glmmTMB:::fitTMB(ssf.min.lfd) 
+summary(ssf.min.lfd)  
+lfd.300 <- coef(ssf.min.lfd)$cond$id$lfd.300.scaled
+
+ssf.min.s10z <- glmmTMB(case_ ~ (1|step.id.id) + (1|id) + (0 + s10z.60.scaled|id) + s10z.60.scaled, 
+                       family=poisson, REML = T, data= ssf.min.data, doFit=FALSE) 
+ssf.min.s10z$parameters$theta[1] = log(1e3) 
+ssf.min.s10z$mapArg = list(theta=factor(c(NA, 1, 2))) 
+ssf.min.s10z = glmmTMB:::fitTMB(ssf.min.s10z) 
+summary(ssf.min.s10z)   
+s10z.60 <- coef(ssf.min.s10z)$cond$id$s10z.60.scaled
+
+ssf.min.sci <- glmmTMB(case_ ~ (1|step.id.id) + (1|id) + (0 + sci.60.scaled|id) + sci.60.scaled, 
+                       family=poisson, REML = T, data= ssf.min.data, doFit=FALSE) 
+ssf.min.sci$parameters$theta[1] = log(1e3) 
+ssf.min.sci$mapArg = list(theta=factor(c(NA, 1, 2))) 
+ssf.min.sci = glmmTMB:::fitTMB(ssf.min.sci) 
+summary(ssf.min.sci)  
+sci.60 <- coef(ssf.min.sci)$cond$id$sci.60.scaled
+
+ssf.min.sdq <- glmmTMB(case_ ~ (1|step.id.id) + (1|id) + (0 + sdq.30.scaled|id) + sdq.30.scaled, 
+                       family=poisson, REML = T, data= ssf.min.data, doFit=FALSE) 
+ssf.min.sdq$parameters$theta[1] = log(1e3) 
+ssf.min.sdq$mapArg = list(theta=factor(c(NA, 1, 2))) 
+ssf.min.sdq = glmmTMB:::fitTMB(ssf.min.sdq) 
+summary(ssf.min.sdq)  
+sdq.30 <- coef(ssf.min.sdq)$cond$id$sdq.30.scaled
+
+ssf.min.sf <- glmmTMB(case_ ~ (1|step.id.id) + (1|id) + (0 + sf.60.scaled|id) + sf.60.scaled, 
+                       family=poisson, REML = T, data= ssf.min.data, doFit=FALSE) 
+ssf.min.sf$parameters$theta[1] = log(1e3) 
+ssf.min.sf$mapArg = list(theta=factor(c(NA, 1, 2))) 
+ssf.min.sf = glmmTMB:::fitTMB(ssf.min.sf) 
+summary(ssf.min.sf)  
+sf.60 <- coef(ssf.min.sf)$cond$id$sf.60.scaled
+
+ssf.min.sq <- glmmTMB(case_ ~ (1|step.id.id) + (1|id) + (0 + sq.30.scaled|id) + sq.30.scaled, 
+                       family=poisson, REML = T, data= ssf.min.data, doFit=FALSE) 
+ssf.min.sq$parameters$theta[1] = log(1e3) 
+ssf.min.sq$mapArg = list(theta=factor(c(NA, 1, 2))) 
+ssf.min.sq = glmmTMB:::fitTMB(ssf.min.sq) 
+summary(ssf.min.sq)  
+sq.30 <- coef(ssf.min.sq)$cond$id$sq.30.scaled
+```
+
+## Output
+- need to get output as attached to id's
+```{r}
+ids <- ssf.min.data %>%
+  distinct(id) %>%
+  arrange(id)
+
+output <- cbind(ids, cc.60, cc.60.sq, ch.60, ch.60.sq, lfd.300, s10z.60, sci.60, sdq.30, sf.60, sq.30) %>%
+  rename(cc.60.sq = "I(cc.60.scaled^2)", ch.60.sq = "I(ch.60.scaled^2)")
+
+write_csv(output, here("data-public", "ssf_min_results.csv"))
+```
