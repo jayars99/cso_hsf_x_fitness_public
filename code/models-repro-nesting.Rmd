@@ -11,42 +11,41 @@ library(here)
 library(tidyverse)
 library(lme4)
 library(broom)
-source(here("code", "misc_functions.R"))
+source(here("Code", "misc_functions.R"))
 ```
+
+## plan
+- binomial for attempted nesting
+- not enough levels/balance to use ecoregion as a fixed or random effect for any model
+- can't use year for the RSF bc no birds nested in 2016, can use year in either SSF
+- separate models for each habitat selection variable, including all the control variables
+- adjustments: fdr method, input habitat selection p-values
 
 ### data
 ```{r}
-rsf.data <- read_csv(here("data-public", "repro_rsf_covs.csv")) %>%
+rsf.data <- read_csv(here("Data", "output_data", "repro_rsf_covs.csv")) %>%
   mutate(across(c(cc.60:sq.60, ppt.total, tmean.mean, nest.sdq), ~ as.numeric(scale(.x)), .names = "{.col}.scaled")) %>%
   mutate(Year = as.factor(Year))
-ssf.hr.data <- read_csv(here("data-public", "repro_ssf_hr_covs.csv")) %>%
+ssf.hr.data <- read_csv(here("Data", "output_data", "repro_ssf_hr_covs.csv")) %>%
   select(-aspect.0) %>%
   mutate(across(c(cc.30:sq.30, ppt.total, tmean.mean, nest.sdq), ~ as.numeric(scale(.x)), .names = "{.col}.scaled")) %>%
   mutate(Year = as.factor(Year))
-ssf.min.data <- read_csv(here("data-public", "repro_ssf_min_covs.csv")) %>%
+ssf.min.data <- read_csv(here("Data", "output_data", "repro_ssf_min_covs.csv")) %>%
   select(-aspect.0) %>%
   mutate(across(c(cc.60:sq.30, ppt.total, tmean.mean, nest.sdq), ~ as.numeric(scale(.x)), .names = "{.col}.scaled")) %>%
   mutate(Year = as.factor(Year))
 ```
 
 ### functions
+- can i just use broom::tidy? no this is better
 - ssfs have Year, made a separate fxn for them
 ```{r}
 join_rsf_results <- function (output, metric, index, model) {
   output$Metric[index] <- metric
   output$Intercept[index] <- coef(summary(model))[1,1]
-  output$Total.PPT[index] <- coef(summary(model))[2,1]
-  output$Total.PPT.Std.Err[index] <- coef(summary(model))[2,2]
-  output$Total.PPT.P[index] <- coef(summary(model))[2,4]
-  output$Mean.Temp[index] <- coef(summary(model))[3,1]
-  output$Mean.Temp.Std.Err[index] <- coef(summary(model))[3,2]
-  output$Mean.Temp.P[index] <- coef(summary(model))[3,4]
-  output$Nest.Topo[index] <- coef(summary(model))[4,1]
-  output$Nest.Topo.Std.Err[index] <- coef(summary(model))[4,2]
-  output$Nest.Topo.P[index] <-coef(summary(model))[4,4]
-  output$Est[index] <- coef(summary(model))[5,1]
-  output$Std.Err[index] <- coef(summary(model))[5,2]
-  output$P.base[index] <- coef(summary(model))[5,4]
+  output$Est[index] <- coef(summary(model))[2,1]
+  output$Std.Err[index] <- coef(summary(model))[2,2]
+  output$P.base[index] <- coef(summary(model))[2,4]
   output
 }
 
@@ -54,67 +53,66 @@ join_ssf_results <- function (output, metric, index, model) {
   output$Metric[index] <- metric
   output$Year1[index] <- coef(summary(model))[1,1]
   output$Year2[index] <- coef(summary(model))[2,1]
-  output$Total.PPT[index] <- coef(summary(model))[3,1]
-  output$Total.PPT.Std.Err[index] <- coef(summary(model))[3,2]
-  output$Total.PPT.P[index] <- coef(summary(model))[3,4]
-  output$Mean.Temp[index] <- coef(summary(model))[4,1]
-  output$Mean.Temp.Std.Err[index] <- coef(summary(model))[4,2]
-  output$Mean.Temp.P[index] <- coef(summary(model))[4,4]
-  output$Nest.Topo[index] <- coef(summary(model))[5,1]
-  output$Nest.Topo.Std.Err[index] <- coef(summary(model))[5,2]
-  output$Nest.Topo.P[index] <- coef(summary(model))[5,4]
-  output$Est[index] <- coef(summary(model))[6,1]
-  output$Std.Err[index] <- coef(summary(model))[6,2]
-  output$P.base[index] <- coef(summary(model))[6,4]
+  output$Est[index] <- coef(summary(model))[3,1]
+  output$Std.Err[index] <- coef(summary(model))[3,2]
+  output$P.base[index] <- coef(summary(model))[3,4]
   output
 }
 ```
 
+
+- none of the owl preferences were important, which is somewhat expected (except for the stationary-male-quality idea)
+- RSF: all the cc/ch things are highly correlated
+- can't put them in the same model anyways bc of excessive numbers of covariates
+- RSF correlations among control and other variables: ppt and aspect, elevation and tmean, elevation and sq, elevation and lfd
+- hrly SSF correlations between control and other variables: elevation and tmean, only
+- ^ same for mxm SSF
+- wasn't using elevation anyways so it's just ppt and aspect for the RSF that's an issue
 
 ### rsf
 
 #### visual checks of collinearity
 - control covariates are not collinear with covariates of interest
 ```{r}
-pairs(rsf.data[20:32], lower.panel = panel.spearman)
+pairs(rsf.data[38:51], lower.panel = panel.spearman)
 ```
 
 #### models
 ```{r}
-nest.rsf.cc <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + cc.60.scaled, family = "binomial", data = rsf.data)
+nest.rsf.cc <- glm(nesting_yn ~ cc.60.scaled, family = "binomial", data = rsf.data)
 summary(nest.rsf.cc)
 
-nest.rsf.cc.sq <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + cc.60.sq.scaled, family = "binomial", data = rsf.data)  
+nest.rsf.cc.sq <- glm(nesting_yn ~ cc.60.sq.scaled, family = "binomial", data = rsf.data)  
 summary(nest.rsf.cc.sq)
 
-nest.rsf.ch <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + ch.30.scaled, family = "binomial", data = rsf.data)
+nest.rsf.ch <- glm(nesting_yn ~ ch.30.scaled, family = "binomial", data = rsf.data)
 summary(nest.rsf.ch)
 
-nest.rsf.ch.sq <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + ch.30.sq.scaled, family = "binomial", data = rsf.data)  
+nest.rsf.ch.sq <- glm(nesting_yn ~ ch.30.sq.scaled, family = "binomial", data = rsf.data)  
 summary(nest.rsf.ch.sq)
 
-nest.rsf.lfd <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + lfd.500.scaled, family = "binomial", data = rsf.data)  
+nest.rsf.lfd <- glm(nesting_yn ~ lfd.500.scaled, family = "binomial", data = rsf.data)  
 summary(nest.rsf.lfd)
 
-nest.rsf.s10z <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + s10z.120.scaled, family = "binomial", data = rsf.data)  
+nest.rsf.s10z <- glm(nesting_yn ~ s10z.120.scaled, family = "binomial", data = rsf.data)  
 summary(nest.rsf.s10z)
 
-nest.rsf.sci <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sci.30.scaled, family = "binomial", data = rsf.data)  
+nest.rsf.sci <- glm(nesting_yn ~ sci.30.scaled, family = "binomial", data = rsf.data)  
 summary(nest.rsf.sci)
 
-nest.rsf.sdq <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sdq.60.scaled, family = "binomial", data = rsf.data)  
-summary(nest.rsf.sdq) 
+nest.rsf.sdq <- glm(nesting_yn ~ sdq.60.scaled, family = "binomial", data = rsf.data)  
+summary(nest.rsf.sdq) # somewhat low!
 
-nest.rsf.sf <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sf.60.scaled, family = "binomial", data = rsf.data)  
+nest.rsf.sf <- glm(nesting_yn ~ sf.60.scaled, family = "binomial", data = rsf.data)  
 summary(nest.rsf.sf) # fitted probabilities 0 or 1 occurred (not much to be done)
 
-nest.rsf.sq <- glm(nesting_yn ~ ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sq.60.scaled, family = "binomial", data = rsf.data)  
+nest.rsf.sq <- glm(nesting_yn ~ sq.60.scaled, family = "binomial", data = rsf.data)  
 summary(nest.rsf.sq)
 ```
 
 #### write results
 ```{r}
-nest.rsf <- tibble(T.scale = rep("RSF", 10), Repro = rep("nest", 10), Metric = rep(NA, 10), Intercept = rep(NA, 10), Total.PPT = rep(NA, 10), Total.PPT.Std.Err = rep(NA, 10), Total.PPT.P = rep(NA, 10), Mean.Temp = rep(NA, 10), Mean.Temp.Std.Err = rep(NA, 10), Mean.Temp.P = rep(NA, 10), Nest.Topo = rep(NA, 10), Nest.Topo.Std.Err = rep(NA, 10), Nest.Topo.P = rep(NA, 10), Est = rep(NA, 10), Std.Err = rep(NA, 10), P.base = rep(NA, 10))
+nest.rsf <- tibble(T.scale = rep("RSF", 10), Repro = rep("nest", 10), Metric = rep(NA, 10), Intercept = rep(NA, 10), Est = rep(NA, 10), Std.Err = rep(NA, 10), P.base = rep(NA, 10))
 nest.rsf <- join_rsf_results(nest.rsf, "cc.60.sq", 2, nest.rsf.cc.sq)
 nest.rsf <- join_rsf_results(nest.rsf, "cc.60", 1, nest.rsf.cc)
 nest.rsf <- join_rsf_results(nest.rsf, "ch.30", 3, nest.rsf.ch)
@@ -132,47 +130,174 @@ nest.rsf$P.fdr <- p.adjust(nest.rsf$P.base, method = "fdr")
 nest.rsf$P.fdr 
 
 # results out
-write_csv(nest.rsf, here("results", "nest_rsf.csv"))
+write_csv(nest.rsf, here("Data", "results", "nest_rsf.csv"))
 ```
 
+#### nightly curve plotting data for figures
+```{r}
+# cc
+newdat <- expand.grid(cc.60.scaled = seq(-2.3, 1.8, by=0.1))
+test <- predict.glm(nest.rsf.cc, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "rsf_nest_cc_fit.csv"))
+# cc squared
+newdat <- expand.grid(cc.60.sq.scaled = seq(-1.8, 1.65, by=0.1))
+test <- predict.glm(nest.rsf.cc.sq, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "rsf_nest_cc-sq_fit.csv"))
+# ch
+newdat <- expand.grid(ch.30.scaled = seq(-1.75, 1.55, by=0.1))
+test <- predict.glm(nest.rsf.ch, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "rsf_nest_ch_fit.csv"))
+# ch squared
+newdat <- expand.grid(ch.30.sq.scaled = seq(-1.65, 2.5, by=0.1))
+test <- predict.glm(nest.rsf.ch.sq, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "rsf_nest_ch-sq_fit.csv"))
+# lfd
+newdat <- expand.grid(lfd.500.scaled = seq(-2.85, 1.45, by=0.1))
+test <- predict.glm(nest.rsf.lfd, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "rsf_nest_lfd_fit.csv"))
+# s10z
+newdat <- expand.grid(s10z.120.scaled = seq(-2.15, 1.45, by=0.1))
+test <- predict.glm(nest.rsf.s10z, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "rsf_nest_s10z_fit.csv"))
+# sci
+newdat <- expand.grid(sci.30.scaled = seq(-2.45, 2, by=0.1)) 
+test <- predict.glm(nest.rsf.sci, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "rsf_nest_sci_fit.csv"))
+# sdq
+newdat <- expand.grid(sdq.60.scaled = seq(-1.9, 1.65, by=0.1))
+test <- predict.glm(nest.rsf.sdq, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "rsf_nest_sdq_fit.csv"))
+# sf
+newdat <- expand.grid(sf.60.scaled = seq(-1.75, 2.15, by=0.1))
+test <- predict.glm(nest.rsf.sf, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "rsf_nest_sf_fit.csv"))
+# sq
+newdat <- expand.grid(sq.60.scaled = seq(-1.7, 1.5, by=0.1))
+test <- predict.glm(nest.rsf.sq, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "rsf_nest_sq_fit.csv"))
+```
+
+#### nightly output tables for supplementary
+```{r}
+nest.rsf <- read_csv(here("Data", "results", "nest_rsf.csv"))
+
+nest.rsf.results <- rbind(tidy(nest.rsf.cc) %>% mutate("Habitat variable" = "Canopy cover"),
+                          tidy(nest.rsf.cc.sq)%>% mutate("Habitat variable" = "Canopy cover ^2"),
+                          tidy(nest.rsf.ch) %>% mutate("Habitat variable" = "Canopy height"),
+                          tidy(nest.rsf.ch.sq) %>% mutate("Habitat variable" = "Canopy height ^2"),
+                          tidy(nest.rsf.lfd) %>% mutate("Habitat variable" = "Ladder fuel density"),
+                          tidy(nest.rsf.s10z) %>% mutate("Habitat variable" = "Contiguity"),
+                          tidy(nest.rsf.sci) %>% mutate("Habitat variable" = "Isolation"),
+                          tidy(nest.rsf.sdq) %>% mutate("Habitat variable" = "Spatial roughness"),
+                          tidy(nest.rsf.sf) %>% mutate("Habitat variable" = "Surface fuels"),
+                          tidy(nest.rsf.sq) %>% mutate("Habitat variable" = "Non-spatial roughness")) %>%
+  mutate(term = str_remove(term, ".scaled")) %>%
+  left_join(nest.rsf, by = c("term" = "Metric")) %>%
+  mutate(term = recode_factor(term, "(Intercept)" = "Intercept",
+                              "cc.60" = "Canopy cover within 60 m",
+                              "cc.60.sq" = "Canopy cover within 60 m ^2",
+                              "ch.30" =  "Canopy height within 30 m",
+                              "ch.30.sq" = "Canopy height within 30 m ^2",
+                              "lfd.500" = "Ladder fuel density within 500 m",
+                              "s10z.120" = "Contiguity within 120 m",
+                              "sci.30" = "Isolation within 30 m",
+                              "sdq.60" = "Spatial roughness within 60 m",
+                              "sf.60" = "Surface fuels within 60 m",
+                              "sq.60" = "Non-spatial roughness within 60 m")) %>%
+  select(`Habitat variable`, term, estimate, std.error, p.value, P.fdr) %>%
+  rename(Term = term, Estimate = estimate, `Std. Error` = std.error, `Base p-value` = p.value, `FDR adjusted p-value` = P.fdr) %>%
+  mutate(across(where(is.numeric), round, 3))
+
+write_csv(nest.rsf.results, here("Data", "results", "nest_rsf_long.txt"))
+```
 
 ### hourly ssf
 #### models
 ```{r}
-nest.ssf.hr.cc <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + cc.30.scaled, family = "binomial", data = ssf.hr.data)
+nest.ssf.hr.cc <- glm(nesting_yn ~ Year -1 + cc.30.scaled, family = "binomial", data = ssf.hr.data)
 summary(nest.ssf.hr.cc)
 
-nest.ssf.hr.cc.sq <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + cc.30.sq.scaled, family = "binomial", data = ssf.hr.data)  
+nest.ssf.hr.cc.sq <- glm(nesting_yn ~ Year -1 + cc.30.sq.scaled, family = "binomial", data = ssf.hr.data)  
 summary(nest.ssf.hr.cc.sq)
 
-nest.ssf.hr.ch <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + ch.30.scaled, family = "binomial", data = ssf.hr.data)
+nest.ssf.hr.ch <- glm(nesting_yn ~ Year -1 + ch.30.scaled, family = "binomial", data = ssf.hr.data)
 summary(nest.ssf.hr.ch)
 
-nest.ssf.hr.ch.sq <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + ch.30.sq.scaled, family = "binomial", data = ssf.hr.data)  
+nest.ssf.hr.ch.sq <- glm(nesting_yn ~ Year -1 + ch.30.sq.scaled, family = "binomial", data = ssf.hr.data)  
 summary(nest.ssf.hr.ch.sq)
 
-nest.ssf.hr.lfd <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + lfd.120.scaled, family = "binomial", data = ssf.hr.data)  
+nest.ssf.hr.lfd <- glm(nesting_yn ~ Year -1 + lfd.120.scaled, family = "binomial", data = ssf.hr.data)  
 summary(nest.ssf.hr.lfd)
 
-nest.ssf.hr.s10z <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + s10z.60.scaled, family = "binomial", data = ssf.hr.data)
+nest.ssf.hr.s10z <- glm(nesting_yn ~ Year -1 + s10z.60.scaled, family = "binomial", data = ssf.hr.data)
 summary(nest.ssf.hr.s10z) 
 
-nest.ssf.hr.sci <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sci.60.scaled, family = "binomial", data = ssf.hr.data)  
+nest.ssf.hr.sci <- glm(nesting_yn ~ Year -1 + sci.60.scaled, family = "binomial", data = ssf.hr.data)  
 summary(nest.ssf.hr.sci)
 
-nest.ssf.hr.sdq <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sdq.30.scaled, family = "binomial", data = ssf.hr.data)  
+nest.ssf.hr.sdq <- glm(nesting_yn ~ Year -1 + sdq.30.scaled, family = "binomial", data = ssf.hr.data)  
 summary(nest.ssf.hr.sdq)
 
-nest.ssf.hr.sf <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sf.30.scaled, family = "binomial", data = ssf.hr.data)  
+nest.ssf.hr.sf <- glm(nesting_yn ~ Year -1 + sf.30.scaled, family = "binomial", data = ssf.hr.data)  
 summary(nest.ssf.hr.sf) 
 
-nest.ssf.hr.sq <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sq.30.scaled, family = "binomial", data = ssf.hr.data)  
+nest.ssf.hr.sq <- glm(nesting_yn ~ Year -1 + sq.30.scaled, family = "binomial", data = ssf.hr.data)  
 summary(nest.ssf.hr.cc.sq)
 ```
 
 #### hourly results output
 ```{r}
-nest.ssf.hr <- tibble(T.scale = rep("SSF_hr", 10), Repro = rep("nest", 10), Metric = rep(NA, 10), Year1 = rep(NA, 10), Year2 = rep(NA, 10), Total.PPT = rep(NA, 10), Total.PPT.Std.Err = rep(NA, 10), Total.PPT.P = rep(NA, 10), Mean.Temp = rep(NA, 10), Mean.Temp.Std.Err = rep(NA, 10), Mean.Temp.P = rep(NA, 10), Nest.Topo = rep(NA, 10), Nest.Topo.Std.Err = rep(NA, 10), Nest.Topo.P = rep(NA, 10), Est = rep(NA, 10), Std.Err = rep(NA, 10), P.base = rep(NA, 10), P.fdr = rep(NA, 10))
+nest.ssf.hr <- tibble(T.scale = rep("SSF_hr", 10), Repro = rep("nest", 10), Metric = rep(NA, 10), Year1 = rep(NA, 10), Year2 = rep(NA, 10), Est = rep(NA, 10), Std.Err = rep(NA, 10), P.base = rep(NA, 10), P.fdr = rep(NA, 10))
 
 nest.ssf.hr <- join_ssf_results(nest.ssf.hr, "cc.30", 1, nest.ssf.hr.cc)
 nest.ssf.hr <- join_ssf_results(nest.ssf.hr, "cc.30.sq", 2, nest.ssf.hr.cc.sq)
@@ -184,53 +309,181 @@ nest.ssf.hr <- join_ssf_results(nest.ssf.hr, "sci.60", 7, nest.ssf.hr.sci)
 nest.ssf.hr <- join_ssf_results(nest.ssf.hr, "sdq.30", 8, nest.ssf.hr.sdq)
 nest.ssf.hr <- join_ssf_results(nest.ssf.hr, "sf.30", 9, nest.ssf.hr.sf)
 nest.ssf.hr <- join_ssf_results(nest.ssf.hr, "sq.30", 10, nest.ssf.hr.sq)
-
 # adjustment
 nest.ssf.hr$P.base
-nest.ssf.hr$P.fdr <- p.adjust(nest.ssf.hr$P.base, method = "fdr") 
+nest.ssf.hr$P.fdr <- p.adjust(nest.ssf.hr$P.base, method = "fdr") # many options with no variation in result (none are significant), fdr is not inappropriate for non-independent tests
 nest.ssf.hr$P.fdr
 
 # results out
-write_csv(nest.ssf.hr, here("results", "nest_ssf-hr.csv"))
+write_csv(nest.ssf.hr, here("Data", "results", "nest_ssf-hr.csv"))
 ```
 
+#### hourly predicted curve plotting data for figures
+```{r}
+# cc
+newdat <- expand.grid(cc.30.scaled = seq(-2.5, 2.75, by=0.1), Year = "2018") 
+test <- predict.glm(nest.ssf.hr.cc, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_nest_cc_fit.csv"))
+# cc sq
+newdat <- expand.grid(cc.30.sq.scaled = seq(-2.5, 3, by=0.1), Year = "2018") 
+test <- predict.glm(nest.ssf.hr.cc.sq, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_nest_cc-sq_fit.csv"))
+# ch
+newdat <- expand.grid(ch.30.scaled = seq(-2.55, 2.15, by=0.1), Year = "2018") 
+test <- predict.glm(nest.ssf.hr.ch, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_nest_ch_fit.csv"))
+# ch.sq
+newdat <- expand.grid(ch.30.sq.scaled = seq(-2.6, 2.65, by=0.1), Year = "2018") 
+test <- predict.glm(nest.ssf.hr.ch.sq, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_nest_ch-sq_fit.csv"))
+# lfd
+newdat <- expand.grid(lfd.120.scaled = seq(-2.4, 2.35, by=0.1), Year = "2018") 
+test <- predict.glm(nest.ssf.hr.lfd, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_nest_lfd_fit.csv"))
+# s10z
+newdat <- expand.grid(s10z.60.scaled = seq(-2.7, 3.15, by=0.1), Year = "2018") 
+test <- predict.glm(nest.ssf.hr.s10z, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_nest_s10z_fit.csv"))
+# sci
+newdat <- expand.grid(sci.60.scaled = seq(-2.25, 2, by=0.1), Year = "2018") 
+test <- predict.glm(nest.ssf.hr.sci, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_nest_sci_fit.csv"))
+# sdq
+newdat <- expand.grid(sdq.30.scaled = seq(-3.15, 2.95, by=0.1), Year = "2018") 
+test <- predict.glm(nest.ssf.hr.sdq, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_nest_sdq_fit.csv"))
+# sf
+newdat <- expand.grid(sf.30.scaled = seq(-2, 2.85, by=0.1), Year = "2018") 
+test <- predict.glm(nest.ssf.hr.sf, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_nest_sf_fit.csv"))
+# sq
+newdat <- expand.grid(sq.30.scaled = seq(-2.8, 2.85, by=0.1), Year = "2018") 
+test <- predict.glm(nest.ssf.hr.sq, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_nest_sq_fit.csv"))
+```
+
+#### hourly output tables for supplementary
+```{r}
+# rsf
+nest.ssf.hr <- read_csv(here("Data", "results", "nest_ssf-hr.csv"))
+
+nest.ssf.hr.results <- rbind(tidy(nest.ssf.hr.cc) %>% mutate("Habitat variable" = "Canopy cover"),
+                          tidy(nest.ssf.hr.cc.sq)%>% mutate("Habitat variable" = "Canopy cover ^2"),
+                          tidy(nest.ssf.hr.ch) %>% mutate("Habitat variable" = "Canopy height"),
+                          tidy(nest.ssf.hr.ch.sq) %>% mutate("Habitat variable" = "Canopy height ^2"),
+                          tidy(nest.ssf.hr.lfd) %>% mutate("Habitat variable" = "Ladder fuel density"),
+                          tidy(nest.ssf.hr.s10z) %>% mutate("Habitat variable" = "Contiguity"),
+                          tidy(nest.ssf.hr.sci) %>% mutate("Habitat variable" = "Isolation"),
+                          tidy(nest.ssf.hr.sdq) %>% mutate("Habitat variable" = "Spatial roughness"),
+                          tidy(nest.ssf.hr.sf) %>% mutate("Habitat variable" = "Surface fuels"),
+                          tidy(nest.ssf.hr.sq) %>% mutate("Habitat variable" = "Non-spatial roughness")) %>%
+  mutate(term = str_remove(term, ".scaled")) %>%
+  left_join(nest.ssf.hr, by = c("term" = "Metric")) %>%
+  mutate(term = recode_factor(term, "Year2017" = "2017 intercept",
+                              "Year2018" = "2018 intercept",
+                              "cc.30" = "Canopy cover within 30 m",
+                              "cc.30.sq" = "Canopy cover within 30 m ^2",
+                              "ch.30" =  "Canopy height within 30 m",
+                              "ch.30.sq" = "Canopy height within 30 m ^2",
+                              "lfd.120" = "Ladder fuel density within 120 m",
+                              "s10z.60" = "Contiguity within 60 m",
+                              "sci.60" = "Isolation within 60 m",
+                              "sdq.30" = "Spatial roughness within 30 m",
+                              "sf.30" = "Surface fuels within 30 m",
+                              "sq.30" = "Non-spatial roughness within 30 m")) %>%
+  select(`Habitat variable`, term, estimate, std.error, p.value, P.fdr) %>%
+  rename(Term = term, Estimate = estimate, `Std. Error` = std.error, `Base p-value` = p.value, `FDR adjusted p-value` = P.fdr) %>%
+  mutate(across(where(is.numeric), round, 3))
+
+write_csv(nest.ssf.hr.results, here("Data", "results", "nest_ssf-hr_long.txt"))
+```
 
 ### mxm ssf
 ```{r}
-nest.ssf.min.cc <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + cc.60.scaled, family = "binomial", data = ssf.min.data)
+nest.ssf.min.cc <- glm(nesting_yn ~ Year -1 + cc.60.scaled, family = "binomial", data = ssf.min.data)
 summary(nest.ssf.min.cc)
 
-nest.ssf.min.cc.sq <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + cc.60.sq.scaled, family = "binomial", data = ssf.min.data)  
+nest.ssf.min.cc.sq <- glm(nesting_yn ~ Year -1 + cc.60.sq.scaled, family = "binomial", data = ssf.min.data)  
 summary(nest.ssf.min.cc.sq)
 
-nest.ssf.min.ch <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + ch.60.scaled, family = "binomial", data = ssf.min.data)
+nest.ssf.min.ch <- glm(nesting_yn ~ Year -1 + ch.60.scaled, family = "binomial", data = ssf.min.data)
 summary(nest.ssf.min.ch)
 
-nest.ssf.min.ch.sq <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + ch.60.sq.scaled, family = "binomial", data = ssf.min.data)  
+nest.ssf.min.ch.sq <- glm(nesting_yn ~ Year -1 + ch.60.sq.scaled, family = "binomial", data = ssf.min.data)  
 summary(nest.ssf.min.ch.sq)
 
-nest.ssf.min.lfd <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + lfd.300.scaled, family = "binomial", data = ssf.min.data)  
+nest.ssf.min.lfd <- glm(nesting_yn ~ Year -1 + lfd.300.scaled, family = "binomial", data = ssf.min.data)  
 summary(nest.ssf.min.lfd)
 
-nest.ssf.min.s10z <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + s10z.60.scaled, family = "binomial", data = ssf.min.data)
-summary(nest.ssf.min.s10z) 
+nest.ssf.min.s10z <- glm(nesting_yn ~ Year -1 + s10z.60.scaled, family = "binomial", data = ssf.min.data)
+summary(nest.ssf.min.s10z) # omg marginally significant (before adjustment)
 
-nest.ssf.min.sci <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sci.60.scaled, family = "binomial", data = ssf.min.data)  
+nest.ssf.min.sci <- glm(nesting_yn ~ Year -1 + sci.60.scaled, family = "binomial", data = ssf.min.data)  
 summary(nest.ssf.min.sci)
 
-nest.ssf.min.sdq <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sdq.30.scaled, family = "binomial", data = ssf.min.data)  
+nest.ssf.min.sdq <- glm(nesting_yn ~ Year -1 + sdq.30.scaled, family = "binomial", data = ssf.min.data)  
 summary(nest.ssf.min.sdq)
 
-nest.ssf.min.sf <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sf.60.scaled, family = "binomial", data = ssf.min.data)  
+nest.ssf.min.sf <- glm(nesting_yn ~ Year -1 + sf.60.scaled, family = "binomial", data = ssf.min.data)  
 summary(nest.ssf.min.sf) 
 
-nest.ssf.min.sq <- glm(nesting_yn ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sq.30.scaled, family = "binomial", data = ssf.min.data)  
+nest.ssf.min.sq <- glm(nesting_yn ~ Year -1 + sq.30.scaled, family = "binomial", data = ssf.min.data)  
 summary(nest.ssf.min.cc.sq)
 ```
 
 #### results out
 ```{r}
-nest.ssf.min <- tibble(T.scale = rep("SSF_min", 10), Repro = rep("nest", 10), Metric = rep(NA, 10), Year1 = rep(NA, 10), Year2 = rep(NA, 10), Total.PPT = rep(NA, 10), Total.PPT.Std.Err = rep(NA, 10), Total.PPT.P = rep(NA, 10), Mean.Temp = rep(NA, 10), Mean.Temp.Std.Err = rep(NA, 10), Mean.Temp.P = rep(NA, 10), Nest.Topo = rep(NA, 10), Nest.Topo.Std.Err = rep(NA, 10), Nest.Topo.P = rep(NA, 10), Est = rep(NA, 10), Std.Err = rep(NA, 10), P.base = rep(NA, 10), P.fdr = rep(NA, 10))
+nest.ssf.min <- tibble(T.scale = rep("SSF_min", 10), Repro = rep("nest", 10), Metric = rep(NA, 10), Year1 = rep(NA, 10), Year2 = rep(NA, 10), Est = rep(NA, 10), Std.Err = rep(NA, 10), P.base = rep(NA, 10), P.fdr = rep(NA, 10))
 
 nest.ssf.min <- join_ssf_results(nest.ssf.min, "cc.60", 1, nest.ssf.min.cc)
 nest.ssf.min <- join_ssf_results(nest.ssf.min, "cc.60.sq", 2, nest.ssf.min.cc.sq)
@@ -248,5 +501,149 @@ nest.ssf.min$P.base
 nest.ssf.min$P.fdr <- p.adjust(nest.ssf.min$P.base, method = "fdr")
 nest.ssf.min$P.fdr
 
-write_csv(nest.ssf.min, here("results", "nest_ssf-min.csv"))
+write_csv(nest.ssf.min, here("Data", "results", "nest_ssf-min.csv"))
 ```
+
+
+#### mxm predicted curve plotting data for figures
+```{r}
+# cc
+newdat <- expand.grid(cc.60.scaled = seq(-2, 2.5, by=0.1), Year = "2019") 
+test <- predict.glm(nest.ssf.min.cc, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_nest_cc_fit.csv"))
+
+# cc.sq
+newdat <- expand.grid(cc.60.sq.scaled = seq(-2.45, 1.7, by=0.1), Year = "2019") 
+test <- predict.glm(nest.ssf.min.cc.sq, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_nest_cc-sq_fit.csv"))
+
+# ch
+newdat <- expand.grid(ch.60.scaled = seq(-2.2, 2.3, by=0.1), Year = "2019") 
+test <- predict.glm(nest.ssf.min.ch, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_nest_ch_fit.csv"))
+
+# ch.sq
+newdat <- expand.grid(ch.60.sq.scaled = seq(-1.75, 2.65, by=0.1), Year = "2019") 
+test <- predict.glm(nest.ssf.min.ch.sq, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_nest_ch-sq_fit.csv"))
+
+# lfd
+newdat <- expand.grid(lfd.300.scaled = seq(-2.9, 1.8, by=0.1), Year = "2019") 
+test <- predict.glm(nest.ssf.min.lfd, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_nest_lfd_fit.csv"))
+
+# s10z
+newdat <- expand.grid(s10z.60.scaled = seq(-1.85, 2.75, by=0.1), Year = "2019") 
+test <- predict.glm(nest.ssf.min.s10z, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_nest_s10z_fit.csv"))
+
+# sci
+newdat <- expand.grid(sci.60.scaled = seq(-2.25, 1.75, by=0.1), Year = "2019") 
+test <- predict.glm(nest.ssf.min.sci, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_nest_sci_fit.csv"))
+
+# sdq
+newdat <- expand.grid(sdq.30.scaled = seq(-2.95, 2.05, by=0.1), Year = "2019") 
+test <- predict.glm(nest.ssf.min.sdq, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_nest_sdq_fit.csv"))
+
+# sf
+newdat <- expand.grid(sf.60.scaled = seq(-2.95, 1.85, by=0.1), Year = "2019") 
+test <- predict.glm(nest.ssf.min.sf, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_nest_sf_fit.csv"))
+
+# sq
+newdat <- expand.grid(sq.30.scaled = seq(-3.65, 1.75, by=0.1), Year = "2019") 
+test <- predict.glm(nest.ssf.min.sq, newdat, type = "link", se.fit = T) 
+newdat$nest.link <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$nesting_yn <- plogis(newdat$nest.link)
+newdat$plo <- plogis(newdat$nest.link-1.96*sqrt(newdat$se.fit))
+newdat$phi <- plogis(newdat$nest.link+1.96*sqrt(newdat$se.fit)) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_nest_sq_fit.csv"))
+```
+
+#### mxm output tables for supplementary
+```{r}
+# rsf
+nest.ssf.min <- read_csv(here("Data", "results", "nest_ssf-min.csv"))
+
+nest.ssf.min.results <- rbind(tidy(nest.ssf.min.cc) %>% mutate("Habitat variable" = "Canopy cover"),
+                          tidy(nest.ssf.min.cc.sq)%>% mutate("Habitat variable" = "Canopy cover ^2"),
+                          tidy(nest.ssf.min.ch) %>% mutate("Habitat variable" = "Canopy height"),
+                          tidy(nest.ssf.min.ch.sq) %>% mutate("Habitat variable" = "Canopy height ^2"),
+                          tidy(nest.ssf.min.lfd) %>% mutate("Habitat variable" = "Ladder fuel density"),
+                          tidy(nest.ssf.min.s10z) %>% mutate("Habitat variable" = "Contiguity"),
+                          tidy(nest.ssf.min.sci) %>% mutate("Habitat variable" = "Isolation"),
+                          tidy(nest.ssf.min.sdq) %>% mutate("Habitat variable" = "Spatial roughness"),
+                          tidy(nest.ssf.min.sf) %>% mutate("Habitat variable" = "Surface fuels"),
+                          tidy(nest.ssf.min.sq) %>% mutate("Habitat variable" = "Non-spatial roughness")) %>%
+  mutate(term = str_remove(term, ".scaled")) %>%
+  left_join(nest.ssf.min, by = c("term" = "Metric")) %>%
+  mutate(term = recode_factor(term, "Year2019" = "2019 intercept",
+                              "Year2020" = "2020 intercept",
+                              "cc.60" = "Canopy cover within 60 m",
+                              "cc.60.sq" = "Canopy cover within 60 m ^2",
+                              "ch.60" =  "Canopy height within 60 m",
+                              "ch.60.sq" = "Canopy height within 60 m ^2",
+                              "lfd.300" = "Ladder fuel density within 300 m",
+                              "s10z.60" = "Contiguity within 60 m",
+                              "sci.60" = "Isolation within 60 m",
+                              "sdq.30" = "Spatial roughness within 30 m",
+                              "sf.60" = "Surface fuels within 60 m",
+                              "sq.30" = "Non-spatial roughness within 30 m")) %>%
+  select(`Habitat variable`, term, estimate, std.error, p.value, P.fdr) %>%
+  rename(Term = term, Estimate = estimate, `Std. Error` = std.error, `Base p-value` = p.value, `FDR adjusted p-value` = P.fdr) %>%
+  mutate(across(where(is.numeric), round, 3))
+
+write_csv(nest.ssf.min.results, here("Data", "results", "nest_ssf-min_long.txt"))
+```
+
+
+
+

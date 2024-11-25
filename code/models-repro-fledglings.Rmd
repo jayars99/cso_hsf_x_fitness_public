@@ -1,7 +1,7 @@
 ---
 title: "model selection for number of young fledged"
 author: "Jessalyn Ayars"
-date: "2022-09-08"
+date: "2024-05-24"
 output: html_document
 ---
 
@@ -12,51 +12,37 @@ library(tidyverse)
 library(lme4)
 library(nnet)
 library(MASS)
-source(here("code", "misc_functions.R"))
+library(broom)
+#source(here("Code", "misc_functions.R"))
 select <- dplyr::select
 ```
+
+## plan
+- originally planned to model using normal regression for small counts 
+- in the name of sturdy statistics: 
+  - try Poisson
+  - try multinomial (maybe, makes less sense)
+  - try ordinal
+  - do they agree? do they even work?
 
 ### summary
 RSF: normal and poisson gave similar results, ordinal was different but also did not appear to model the data well (too few data points)
 hxh and mxm SSF: all gave similar results
---> using normal since that is a typical thing to do
-
-## functions
-```{r}
-join_ssf_results <- function (output, metric, index, model) {
-  output$Metric[index] <- metric
-  output$Year1[index] <- coef(summary(model))[1,1]
-  output$Year2[index] <- coef(summary(model))[2,1]
-  output$Total.PPT[index] <- coef(summary(model))[3,1]
-  output$Total.PPT.Std.Err[index] <- coef(summary(model))[3,2]
-  output$Total.PPT.P[index] <- coef(summary(model))[3,4]
-  output$Mean.Temp[index] <- coef(summary(model))[4,1]
-  output$Mean.Temp.Std.Err[index] <- coef(summary(model))[4,2]
-  output$Mean.Temp.P[index] <- coef(summary(model))[4,4]
-  output$Nest.Topo[index] <- coef(summary(model))[5,1]
-  output$Nest.Topo.Std.Err[index] <- coef(summary(model))[5,2]
-  output$Nest.Topo.P[index] <- coef(summary(model))[5,4]
-  output$Est[index] <- coef(summary(model))[6,1]
-  output$Std.Err[index] <- coef(summary(model))[6,2]
-  output$P.base[index] <- coef(summary(model))[6,4]
-  output
-}
-```
 
 ## data
 ```{r}
-rsf.data.f <- read_csv(here("data-public", "repro_rsf_covs.csv")) %>%
+rsf.data.f <- read_csv(here("Data", "output_data", "repro_rsf_covs.csv")) %>%
   filter(nesting_yn == 1) %>%
   mutate(across(c(cc.60:sq.60, ppt.total, tmean.mean, nest.sdq), ~ as.numeric(scale(.x)), .names = "{.col}.scaled")) %>%
   mutate(Year = as.factor(Year)) %>% 
   mutate(n_fledglings2 = as.factor(n_fledglings))
-ssf.hr.data.f <- read_csv(here("data-public", "repro_ssf_hr_covs.csv")) %>%
+ssf.hr.data.f <- read_csv(here("Data", "output_data", "repro_ssf_hr_covs.csv")) %>%
   filter(nesting_yn == 1) %>%
   select(-aspect.0) %>%
   mutate(across(c(cc.30:sq.30, ppt.total, tmean.mean, nest.sdq), ~ as.numeric(scale(.x)), .names = "{.col}.scaled")) %>%
   mutate(Year = as.factor(Year)) %>% 
   mutate(n_fledglings2 = as.factor(n_fledglings))
-ssf.min.data.f <- read_csv(here("data-public", "repro_ssf_min_covs.csv")) %>%
+ssf.min.data.f <- read_csv(here("Data", "output_data", "repro_ssf_min_covs.csv")) %>%
   filter(nesting_yn == 1) %>%
   select(-aspect.0) %>%
   mutate(across(c(cc.60:sq.30, ppt.total, tmean.mean, nest.sdq), ~ as.numeric(scale(.x)), .names = "{.col}.scaled")) %>%
@@ -68,286 +54,484 @@ ssf.min.data.f <- read_csv(here("data-public", "repro_ssf_min_covs.csv")) %>%
 ## normal models
 
 ### rsf
-
-#### collinearity visual checks
-- ppt with sf, sdq, s10z. ch^2, cc
-- tmean with sq
-- nest sdq with ch^2, sci
-- ppt and nest sdq also correlated, i'd prioritize ppt
 ```{r}
-pairs(rsf.data.f[20:32], lower.panel = panel.spearman)
-```
+rsf.data.f.models <- rsf.data.f %>%
+  pivot_longer(cols = cc.60.scaled:sq.60.scaled,
+               names_to = "Metric",
+               values_to = "value") %>%
+  nest(.by = Metric) %>%
+  mutate(model = map(data, ~glm(n_fledglings ~ value, data = .x))) %>%
+  mutate(coef = map(model, tidy)) %>% 
+  unnest(cols = c(coef)) %>%
+  select(-data, -model) %>%
+  pivot_wider(names_from = term, values_from = c(estimate, std.error, statistic, p.value), names_glue = "{term}_{.value}") %>%
+  select(Metric, `(Intercept)_estimate`, value_estimate, value_std.error, value_statistic, value_p.value) %>%
+  rename("Int." = `(Intercept)_estimate`, "Est." = value_estimate, "Std.Err" = value_std.error, "P.base" = value_p.value)
 
-### models
-```{r}
-fledge_n.rsf.cc <- glm(n_fledglings ~ tmean.mean.scaled + nest.sdq.scaled + cc.60.scaled, family = "gaussian", data = rsf.data.f)
-summary(fledge_n.rsf.cc)
-
-fledge_n.rsf.cc.sq <- glm(n_fledglings ~ ppt.total.scaled + tmean.mean.scaled + cc.60.sq.scaled, family = "gaussian", data = rsf.data.f)
-summary(fledge_n.rsf.cc.sq)  
-
-fledge_n.rsf.ch <- glm(n_fledglings ~ ppt.total.scaled + tmean.mean.scaled + ch.30.scaled, family = "gaussian", data = rsf.data.f)
-summary(fledge_n.rsf.ch)
-
-fledge_n.rsf.ch.sq <- glm(n_fledglings ~ tmean.mean.scaled + ch.30.sq.scaled, family = "gaussian", data = rsf.data.f)
-summary(fledge_n.rsf.ch.sq)  
-
-fledge_n.rsf.lfd <- glm(n_fledglings ~ ppt.total.scaled + tmean.mean.scaled + lfd.500.scaled, family = "gaussian", data = rsf.data.f)
-summary(fledge_n.rsf.lfd)
-
-fledge_n.rsf.s10z <- glm(n_fledglings ~ tmean.mean.scaled + nest.sdq.scaled + s10z.120.scaled, family = "gaussian", data = rsf.data.f)
-summary(fledge_n.rsf.s10z)
-
-fledge_n.rsf.sci <- glm(n_fledglings ~ ppt.total.scaled + tmean.mean.scaled + sci.30.scaled, family = "gaussian", data = rsf.data.f)
-summary(fledge_n.rsf.sci)
-
-fledge_n.rsf.sdq <- glm(n_fledglings ~ ppt.total.scaled + tmean.mean.scaled + sdq.60.scaled, family = "gaussian", data = rsf.data.f)
-summary(fledge_n.rsf.sdq) 
-
-fledge_n.rsf.sf <- glm(n_fledglings ~ tmean.mean.scaled + nest.sdq.scaled + sf.60.scaled, family = "gaussian", data = rsf.data.f)
-summary(fledge_n.rsf.sf)
-
-fledge_n.rsf.sq <- glm(n_fledglings ~ ppt.total.scaled + sq.60.scaled, family = "gaussian", data = rsf.data.f)
-summary(fledge_n.rsf.sq)
-```
-
-#### results short format
-```{r}
-fledge_n.rsf <- tibble(T.scale = rep("RSF", 10), Repro = rep("fledge", 10), Metric = rep(NA, 10), Intercept = rep(NA, 10), Total.PPT = rep(NA, 10), Total.PPT.Std.Err = rep(NA, 10), Total.PPT.P = rep(NA, 10), Mean.Temp = rep(NA, 10), Mean.Temp.Std.Err = rep(NA, 10), Mean.Temp.P = rep(NA, 10), Nest.Topo = rep(NA, 10), Nest.Topo.Std.Err = rep(NA, 10), Nest.Topo.P = rep(NA, 10), Est = rep(NA, 10), Std.Err = rep(NA, 10), P.base = rep(NA, 10))
-
-fledge_n.rsf$Metric[1] <- "cc.60"
-fledge_n.rsf$Intercept[1] <- coef(summary(fledge_n.rsf.cc))[1,1]
-fledge_n.rsf$Mean.Temp[1] <- coef(summary(fledge_n.rsf.cc))[2,1]
-fledge_n.rsf$Mean.Temp.Std.Err[1] <- coef(summary(fledge_n.rsf.cc))[2,2]
-fledge_n.rsf$Mean.Temp.P[1] <- coef(summary(fledge_n.rsf.cc))[2,4]
-fledge_n.rsf$Nest.Topo[1] <- coef(summary(fledge_n.rsf.cc))[3,1]
-fledge_n.rsf$Nest.Topo.Std.Err[1] <- coef(summary(fledge_n.rsf.cc))[3,2]
-fledge_n.rsf$Nest.Topo.P[1] <- coef(summary(fledge_n.rsf.cc))[3,4]
-fledge_n.rsf$Est[1] <- coef(summary(fledge_n.rsf.cc))[4,1]
-fledge_n.rsf$Std.Err[1] <- coef(summary(fledge_n.rsf.cc))[4,2]
-fledge_n.rsf$P.base[1] <- coef(summary(fledge_n.rsf.cc))[4,4]
-fledge_n.rsf$Metric[2] <- "cc.60.sq"
-fledge_n.rsf$Intercept[2] <- coef(summary(fledge_n.rsf.cc.sq))[1,1]
-fledge_n.rsf$Total.PPT[2] <- coef(summary(fledge_n.rsf.cc.sq))[2,1]
-fledge_n.rsf$Total.PPT.Std.Err[2] <- coef(summary(fledge_n.rsf.cc.sq))[2,2]
-fledge_n.rsf$Total.PPT.P[2] <- coef(summary(fledge_n.rsf.cc.sq))[2,4]
-fledge_n.rsf$Mean.Temp[2] <- coef(summary(fledge_n.rsf.cc.sq))[3,1]
-fledge_n.rsf$Mean.Temp.Std.Err[2] <- coef(summary(fledge_n.rsf.cc.sq))[3,2]
-fledge_n.rsf$Mean.Temp.P[2] <- coef(summary(fledge_n.rsf.cc.sq))[3,4]
-fledge_n.rsf$Est[2] <- coef(summary(fledge_n.rsf.cc.sq))[4,1]
-fledge_n.rsf$Std.Err[2] <- coef(summary(fledge_n.rsf.cc.sq))[4,2]
-fledge_n.rsf$P.base[2] <- coef(summary(fledge_n.rsf.cc.sq))[4,4]
-fledge_n.rsf$Metric[3] <- "ch.30"
-fledge_n.rsf$Intercept[3] <- coef(summary(fledge_n.rsf.ch))[1,1]
-fledge_n.rsf$Total.PPT[3] <- coef(summary(fledge_n.rsf.ch))[2,1]
-fledge_n.rsf$Total.PPT.Std.Err[3] <- coef(summary(fledge_n.rsf.ch))[2,2]
-fledge_n.rsf$Total.PPT.P[3] <- coef(summary(fledge_n.rsf.ch))[2,4]
-fledge_n.rsf$Mean.Temp[3] <- coef(summary(fledge_n.rsf.ch))[3,1]
-fledge_n.rsf$Mean.Temp.Std.Err[3] <- coef(summary(fledge_n.rsf.ch))[3,2]
-fledge_n.rsf$Mean.Temp.P[3] <- coef(summary(fledge_n.rsf.ch))[3,4]
-fledge_n.rsf$Est[3] <- coef(summary(fledge_n.rsf.ch))[4,1]
-fledge_n.rsf$Std.Err[3] <- coef(summary(fledge_n.rsf.ch))[4,2]
-fledge_n.rsf$P.base[3] <- coef(summary(fledge_n.rsf.ch))[4,4]
-fledge_n.rsf$Metric[4] <- "ch.30.sq"
-fledge_n.rsf$Intercept[4] <- coef(summary(fledge_n.rsf.ch.sq))[1,1]
-fledge_n.rsf$Mean.Temp[4] <- coef(summary(fledge_n.rsf.ch.sq))[2,1]
-fledge_n.rsf$Mean.Temp.Std.Err[4] <- coef(summary(fledge_n.rsf.ch.sq))[2,2]
-fledge_n.rsf$Mean.Temp.P[4] <- coef(summary(fledge_n.rsf.ch.sq))[2,4]
-fledge_n.rsf$Est[4] <- coef(summary(fledge_n.rsf.ch.sq))[3,1]
-fledge_n.rsf$Std.Err[4] <- coef(summary(fledge_n.rsf.ch.sq))[3,2]
-fledge_n.rsf$P.base[4] <- coef(summary(fledge_n.rsf.ch.sq))[3,4]
-fledge_n.rsf$Metric[5] <- "lfd.500"
-fledge_n.rsf$Intercept[5] <- coef(summary(fledge_n.rsf.lfd))[1,1]
-fledge_n.rsf$Total.PPT[5] <- coef(summary(fledge_n.rsf.lfd))[2,1]
-fledge_n.rsf$Total.PPT.Std.Err[5] <- coef(summary(fledge_n.rsf.lfd))[2,2]
-fledge_n.rsf$Total.PPT.P[5] <- coef(summary(fledge_n.rsf.lfd))[2,4]
-fledge_n.rsf$Mean.Temp[5] <- coef(summary(fledge_n.rsf.lfd))[3,1]
-fledge_n.rsf$Mean.Temp.Std.Err[5] <- coef(summary(fledge_n.rsf.lfd))[3,2]
-fledge_n.rsf$Mean.Temp.P[5] <- coef(summary(fledge_n.rsf.lfd)) [3,4]
-fledge_n.rsf$Est[5] <- coef(summary(fledge_n.rsf.lfd))[4,1]
-fledge_n.rsf$Std.Err[5] <- coef(summary(fledge_n.rsf.lfd))[4,2]
-fledge_n.rsf$P.base[5] <- coef(summary(fledge_n.rsf.lfd))[4,4]
-fledge_n.rsf$Metric[6] <- "s10z.120"
-fledge_n.rsf$Intercept[6] <- coef(summary(fledge_n.rsf.s10z))[1,1]
-fledge_n.rsf$Mean.Temp[6] <- coef(summary(fledge_n.rsf.s10z))[2,1]
-fledge_n.rsf$Mean.Temp.Std.Err[6] <- coef(summary(fledge_n.rsf.s10z))[2,2]
-fledge_n.rsf$Mean.Temp.P[6] <- coef(summary(fledge_n.rsf.s10z))[2,4]
-fledge_n.rsf$Nest.Topo[6] <- coef(summary(fledge_n.rsf.s10z))[3,1]
-fledge_n.rsf$Nest.Topo.Std.Err[6] <- coef(summary(fledge_n.rsf.s10z))[3,2]
-fledge_n.rsf$Nest.Topo.P[6] <- coef(summary(fledge_n.rsf.s10z))[3,4]
-fledge_n.rsf$Est[6] <- coef(summary(fledge_n.rsf.s10z))[4,1]
-fledge_n.rsf$Std.Err[6] <- coef(summary(fledge_n.rsf.s10z))[4,2]
-fledge_n.rsf$P.base[6] <- coef(summary(fledge_n.rsf.s10z))[4,4]
-fledge_n.rsf$Metric[7] <- "sci.30"
-fledge_n.rsf$Intercept[7] <- coef(summary(fledge_n.rsf.sci))[1,1]
-fledge_n.rsf$Total.PPT[7] <- coef(summary(fledge_n.rsf.sci))[2,1]
-fledge_n.rsf$Total.PPT.Std.Err[7] <- coef(summary(fledge_n.rsf.sci))[2,2]
-fledge_n.rsf$Total.PPT.P[7] <- coef(summary(fledge_n.rsf.sci))[2,4]
-fledge_n.rsf$Mean.Temp[7] <- coef(summary(fledge_n.rsf.sci))[3,1]
-fledge_n.rsf$Mean.Temp.Std.Err[7] <- coef(summary(fledge_n.rsf.sci))[3,2]
-fledge_n.rsf$Mean.Temp.P[7] <- coef(summary(fledge_n.rsf.sci))[3,4]
-fledge_n.rsf$Est[7] <- coef(summary(fledge_n.rsf.sci))[4,1]
-fledge_n.rsf$Std.Err[7] <- coef(summary(fledge_n.rsf.sci))[4,2]
-fledge_n.rsf$P.base[7] <- coef(summary(fledge_n.rsf.sci))[4,4]
-fledge_n.rsf$Metric[8] <- "sdq.60"
-fledge_n.rsf$Intercept[8] <- coef(summary(fledge_n.rsf.sdq))[1,1]
-fledge_n.rsf$Total.PPT[8] <- coef(summary(fledge_n.rsf.sdq))[2,1]
-fledge_n.rsf$Total.PPT.Std.Err[8] <- coef(summary(fledge_n.rsf.sdq))[2,2]
-fledge_n.rsf$Total.PPT.P[8] <- coef(summary(fledge_n.rsf.sdq))[2,4]
-fledge_n.rsf$Mean.Temp[8] <- coef(summary(fledge_n.rsf.sdq))[3,1]
-fledge_n.rsf$Mean.Temp.Std.Err[8] <- coef(summary(fledge_n.rsf.sdq))[3,2]
-fledge_n.rsf$Mean.Temp.P[8] <- coef(summary(fledge_n.rsf.sdq))[3,4]
-fledge_n.rsf$Est[8] <- coef(summary(fledge_n.rsf.sdq))[4,1]
-fledge_n.rsf$Std.Err[8] <- coef(summary(fledge_n.rsf.sdq))[4,2]
-fledge_n.rsf$P.base[8] <- coef(summary(fledge_n.rsf.sdq))[4,4]
-fledge_n.rsf$Metric[9] <- "sf.60"
-fledge_n.rsf$Intercept[9] <- coef(summary(fledge_n.rsf.sf))[1,1]
-fledge_n.rsf$Mean.Temp[9] <- coef(summary(fledge_n.rsf.sf))[2,1]
-fledge_n.rsf$Mean.Temp.Std.Err[9] <- coef(summary(fledge_n.rsf.sf))[2,2]
-fledge_n.rsf$Mean.Temp.P[9] <- coef(summary(fledge_n.rsf.sf))[2,4]
-fledge_n.rsf$Nest.Topo[9] <- coef(summary(fledge_n.rsf.sf))[3,1]
-fledge_n.rsf$Nest.Topo.Std.Err[9] <- coef(summary(fledge_n.rsf.sf))[3,2]
-fledge_n.rsf$Nest.Topo.P[9] <- coef(summary(fledge_n.rsf.sf))[3,4]
-fledge_n.rsf$Est[9] <- coef(summary(fledge_n.rsf.sf))[4,1]
-fledge_n.rsf$Std.Err[9] <- coef(summary(fledge_n.rsf.sf))[4,2]
-fledge_n.rsf$P.base[9] <- coef(summary(fledge_n.rsf.sf))[4,4]
-fledge_n.rsf$Metric[10] <- "sq.60"
-fledge_n.rsf$Intercept[10] <- coef(summary(fledge_n.rsf.sq))[1,1]
-fledge_n.rsf$Total.PPT[10] <- coef(summary(fledge_n.rsf.sq))[2,1]
-fledge_n.rsf$Total.PPT.Std.Err[10] <- coef(summary(fledge_n.rsf.sq))[2,2]
-fledge_n.rsf$Total.PPT.P[10] <- coef(summary(fledge_n.rsf.sq))[2,4]
-fledge_n.rsf$Est[10] <- coef(summary(fledge_n.rsf.sq))[3,1]
-fledge_n.rsf$Std.Err[10] <- coef(summary(fledge_n.rsf.sq))[3,2]
-fledge_n.rsf$P.base[10] <- coef(summary(fledge_n.rsf.sq))[3,4]
-
-fledge_n.rsf$P.base
-fledge_n.rsf$P.fdr <- p.adjust(fledge_n.rsf$P.base, method = "fdr")
-fledge_n.rsf$P.fdr 
+rsf.data.f.models$P.base
+rsf.data.f.models$P.fdr <- p.adjust(rsf.data.f.models$P.base, method = "fdr")
+rsf.data.f.models$P.fdr # nothing useful
 
 # writing results
-write_csv(fledge_n.rsf, here("results", "fledge_n_rsf.csv"))
+write_csv(rsf.data.f.models, here("Data", "results", "fledge_n_rsf.csv"))
+```
+
+#### curve plotting data
+```{r}
+# individual models
+fledge_n.rsf.cc <- glm(n_fledglings ~ cc.60.scaled, family = "gaussian", data = rsf.data.f)
+fledge_n.rsf.cc.sq <- glm(n_fledglings ~ cc.60.sq.scaled, family = "gaussian", data = rsf.data.f)
+fledge_n.rsf.ch <- glm(n_fledglings ~ ch.30.scaled, family = "gaussian", data = rsf.data.f)
+fledge_n.rsf.ch.sq <- glm(n_fledglings ~ ch.30.sq.scaled, family = "gaussian", data = rsf.data.f)
+fledge_n.rsf.lfd <- glm(n_fledglings ~ lfd.500.scaled, family = "gaussian", data = rsf.data.f)
+fledge_n.rsf.s10z <- glm(n_fledglings ~ s10z.120.scaled, family = "gaussian", data = rsf.data.f)
+fledge_n.rsf.sci <- glm(n_fledglings ~ sci.30.scaled, family = "gaussian", data = rsf.data.f)
+fledge_n.rsf.sdq <- glm(n_fledglings ~ sdq.60.scaled, family = "gaussian", data = rsf.data.f)
+fledge_n.rsf.sf <- glm(n_fledglings ~ sf.60.scaled, family = "gaussian", data = rsf.data.f)
+fledge_n.rsf.sq <- glm(n_fledglings ~ sq.60.scaled, family = "gaussian", data = rsf.data.f)
+
+## curve plotting data for cc
+newdat <- expand.grid(cc.60.scaled = seq(-1.45, 1.3, by=0.1)) 
+test <- predict.glm(fledge_n.rsf.cc, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "rsf_fledge_cc_fit.csv"))
+#### curve plotting data for cc.sq
+newdat <- expand.grid(cc.60.sq.scaled = seq(-1.45, 1.35, by=0.1)) 
+test <- predict.glm(fledge_n.rsf.cc.sq, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "rsf_fledge_cc-sq_fit.csv"))
+#### curve plotting data for ch
+newdat <- expand.grid(ch.30.scaled = seq(-1.3, 1.65, by=0.1)) 
+test <- predict.glm(fledge_n.rsf.ch, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "rsf_fledge_ch_fit.csv"))
+#### curve plotting data for ch^2
+newdat <- expand.grid(ch.30.sq.scaled = seq(-1.3, 1.5, by=0.1)) 
+test <- predict.glm(fledge_n.rsf.ch.sq, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "rsf_fledge_ch-sq_fit.csv"))
+#### curve plotting data for lfd
+newdat <- expand.grid(lfd.500.scaled = seq(-1.7, 1.55, by=0.1)) 
+test <- predict.glm(fledge_n.rsf.lfd, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "rsf_fledge_lfd_fit.csv"))
+#### curve plotting data for s10z
+newdat <- expand.grid(s10z.120.scaled = seq(-1.9, 1.1, by=0.1)) 
+test <- predict.glm(fledge_n.rsf.s10z, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "rsf_fledge_s10z_fit.csv"))
+#### curve plotting data for sci
+newdat <- expand.grid(sci.30.scaled = seq(-1.85, 1.3, by=0.1)) 
+test <- predict.glm(fledge_n.rsf.sci, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "rsf_fledge_sci_fit.csv"))
+#### curve plotting data for sdq
+newdat <- expand.grid(sdq.60.scaled = seq(-1.6, 1.15, by=0.1)) 
+test <- predict.glm(fledge_n.rsf.sdq, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "rsf_fledge_sdq_fit.csv"))
+#### curve plotting data for sf
+newdat <- expand.grid(sf.60.scaled = seq(-1.85, 1.4, by=0.1)) 
+test <- predict.glm(fledge_n.rsf.sf, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "rsf_fledge_sf_fit.csv"))
+#### curve plotting data for sq
+newdat <- expand.grid(sq.60.scaled = seq(-1.65, 1.15, by=0.1)) 
+test <- predict.glm(fledge_n.rsf.sq, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "rsf_fledge_sq_fit.csv"))
+##
+```
+
+
+#### long-format data
+```{r}
+fledge_n.rsf <- read_csv(here("Data", "results", "fledge_n_rsf.csv"))
+
+fledge_n.rsf.results <- rbind(tidy(fledge_n.rsf.cc) %>% mutate("Habitat variable" = "Canopy cover"),
+                          tidy(fledge_n.rsf.cc.sq)%>% mutate("Habitat variable" = "Canopy cover ^2"),
+                          tidy(fledge_n.rsf.ch) %>% mutate("Habitat variable" = "Canopy height"),
+                          tidy(fledge_n.rsf.ch.sq) %>% mutate("Habitat variable" = "Canopy height ^2"),
+                          tidy(fledge_n.rsf.lfd) %>% mutate("Habitat variable" = "Ladder fuel density"),
+                          tidy(fledge_n.rsf.s10z) %>% mutate("Habitat variable" = "Contiguity"),
+                          tidy(fledge_n.rsf.sci) %>% mutate("Habitat variable" = "Isolation"),
+                          tidy(fledge_n.rsf.sdq) %>% mutate("Habitat variable" = "Spatial roughness"),
+                          tidy(fledge_n.rsf.sf) %>% mutate("Habitat variable" = "Surface fuels"),
+                          tidy(fledge_n.rsf.sq) %>% mutate("Habitat variable" = "Non-spatial roughness")) %>%
+  left_join(fledge_n.rsf, by = c("term" = "Metric")) %>%
+  mutate(term = str_remove(term, ".scaled")) %>%
+  mutate(term = recode_factor(term, "cc.60" = "Canopy cover within 60 m",
+                              "cc.60.sq" = "Canopy cover within 60 m ^2",
+                              "ch.30" =  "Canopy height within 30 m",
+                              "ch.30.sq" = "Canopy height within 30 m ^2",
+                              "lfd.500" = "Ladder fuel density within 500 m",
+                              "s10z.120" = "Contiguity within 120 m",
+                              "sci.30" = "Isolation within 30 m",
+                              "sdq.60" = "Spatial roughness within 60 m",
+                              "sf.60" = "Surface fuels within 60 m",
+                              "sq.60" = "Non-spatial roughness within 60 m")) %>%
+  select(`Habitat variable`, term, estimate, std.error, p.value, P.fdr) %>%
+  rename(Term = term, Estimate = estimate, `Std. Error` = std.error, `Base p-value` = p.value, `FDR adjusted p-value` = P.fdr) %>%
+  mutate(across(where(is.numeric), round, 3))
+
+write_csv(fledge_n.rsf.results, here("Data", "results", "fledge_rsf_long.txt"))
 ```
 
 
 ### hourly ssf
 #### models
 ```{r}
-fledge_n.ssf.hr.cc <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + cc.30.scaled, family = "gaussian", data = ssf.hr.data.f)
-summary(fledge_n.ssf.hr.cc)
+fledge_n.ssf.hr <- ssf.hr.data.f %>%
+  pivot_longer(cols = cc.30.scaled:sq.30.scaled,
+               names_to = "Metric",
+               values_to = "value") %>%
+  nest(.by = Metric) %>%
+  mutate(model = map(data, ~glm(n_fledglings ~ Year -1 + value, data = .x))) %>%
+  mutate(coef = map(model, tidy)) %>% 
+  unnest(cols = c(coef)) %>%
+  select(-data, -model) %>%
+  pivot_wider(names_from = term, values_from = c(estimate, std.error, statistic, p.value), names_glue = "{term}_{.value}") %>%
+  select(Metric, Year2017_estimate, Year2018_estimate, value_estimate, value_std.error, value_statistic, value_p.value) %>%
+  rename("Year2017" = Year2017_estimate, "Year2018" = Year2018_estimate, "Est." = value_estimate, "Std.Err" = value_std.error, "P.base" = value_p.value)
 
-fledge_n.ssf.hr.cc.sq <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + cc.30.sq.scaled, family = "gaussian", data = ssf.hr.data.f)
-summary(fledge_n.ssf.hr.cc.sq)
+fledge_n.ssf.hr$P.base
+fledge_n.ssf.hr$P.fdr <- p.adjust(fledge_n.ssf.hr$P.base, method = "fdr")
+fledge_n.ssf.hr$P.fdr 
 
-fledge_n.ssf.hr.ch <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + ch.30.scaled, family = "gaussian", data = ssf.hr.data.f)
-summary(fledge_n.ssf.hr.cc)
-
-fledge_n.ssf.hr.ch.sq <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + ch.30.sq.scaled, family = "gaussian", data = ssf.hr.data.f)
-summary(fledge_n.ssf.hr.ch.sq)
-
-fledge_n.ssf.hr.lfd <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + lfd.120.scaled, family = "gaussian", data = ssf.hr.data.f)
-summary(fledge_n.ssf.hr.lfd)
-
-fledge_n.ssf.hr.s10z <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + s10z.60.scaled, family = "gaussian", data = ssf.hr.data.f)
-summary(fledge_n.ssf.hr.s10z)
-
-fledge_n.ssf.hr.sci <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sci.60.scaled, family = "gaussian", data = ssf.hr.data.f)
-summary(fledge_n.ssf.hr.sci)
-
-fledge_n.ssf.hr.sdq <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sdq.30.scaled, family = "gaussian", data = ssf.hr.data.f)
-summary(fledge_n.ssf.hr.sdq)   
-
-fledge_n.ssf.hr.sf <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sf.30.scaled, family = "gaussian", data = ssf.hr.data.f)
-summary(fledge_n.ssf.hr.sf)
-
-fledge_n.ssf.hr.sq <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sq.30.scaled, family = "gaussian", data = ssf.hr.data.f)
-summary(fledge_n.ssf.hr.sq)
+# writing results
+write_csv(fledge_n.ssf.hr, here("Data", "results", "fledge_n_ssf-hr.csv"))
 ```
 
-#### results short format
+#### curve plotting data
 ```{r}
-fledge_n.ssf.hr <- tibble(T.scale = rep("SSF_hr", 10), Repro = rep("fledge_n", 10), Metric = rep(NA, 10), Year1 = rep(NA, 10), Year2 = rep(NA, 10), Total.PPT = rep(NA, 10), Total.PPT.Std.Err = rep(NA, 10), Total.PPT.P = rep(NA, 10), Mean.Temp = rep(NA, 10), Mean.Temp.Std.Err = rep(NA, 10), Mean.Temp.P = rep(NA, 10), Nest.Topo = rep(NA, 10), Nest.Topo.Std.Err = rep(NA, 10), Nest.Topo.P = rep(NA, 10), Est = rep(NA, 10), Std.Err = rep(NA, 10), P.base = rep(NA, 10), P.fdr = rep(NA, 10))
+# individual models for reference
+fledge_n.ssf.hr.cc <- glm(n_fledglings ~ Year -1 + cc.30.scaled, family = "gaussian", data = ssf.hr.data.f)
+fledge_n.ssf.hr.cc.sq <- glm(n_fledglings ~ Year -1 + cc.30.sq.scaled, family = "gaussian", data = ssf.hr.data.f)
+fledge_n.ssf.hr.ch <- glm(n_fledglings ~ Year -1 + ch.30.scaled, family = "gaussian", data = ssf.hr.data.f)
+fledge_n.ssf.hr.ch.sq <- glm(n_fledglings ~ Year -1 + ch.30.sq.scaled, family = "gaussian", data = ssf.hr.data.f)
+fledge_n.ssf.hr.lfd <- glm(n_fledglings ~ Year -1 + lfd.120.scaled, family = "gaussian", data = ssf.hr.data.f)
+fledge_n.ssf.hr.s10z <- glm(n_fledglings ~ Year -1 + s10z.60.scaled, family = "gaussian", data = ssf.hr.data.f)
+fledge_n.ssf.hr.sci <- glm(n_fledglings ~ Year -1 + sci.60.scaled, family = "gaussian", data = ssf.hr.data.f)
+fledge_n.ssf.hr.sdq <- glm(n_fledglings ~ Year -1 + sdq.30.scaled, family = "gaussian", data = ssf.hr.data.f)
+fledge_n.ssf.hr.sf <- glm(n_fledglings ~ Year -1 + sf.30.scaled, family = "gaussian", data = ssf.hr.data.f)
+fledge_n.ssf.hr.sq <- glm(n_fledglings ~ Year -1 + sq.30.scaled, family = "gaussian", data = ssf.hr.data.f)
 
-fledge_n.ssf.hr <- join_ssf_results(fledge_n.ssf.hr, "cc.30", 1, fledge_n.ssf.hr.cc)
-fledge_n.ssf.hr <- join_ssf_results(fledge_n.ssf.hr, "cc.30.sq", 2, fledge_n.ssf.hr.cc.sq)
-fledge_n.ssf.hr <- join_ssf_results(fledge_n.ssf.hr, "ch.30", 3, fledge_n.ssf.hr.ch)
-fledge_n.ssf.hr <- join_ssf_results(fledge_n.ssf.hr, "ch.30.sq", 4, fledge_n.ssf.hr.ch.sq)
-fledge_n.ssf.hr <- join_ssf_results(fledge_n.ssf.hr, "lfd.120", 5, fledge_n.ssf.hr.lfd)
-fledge_n.ssf.hr <- join_ssf_results(fledge_n.ssf.hr, "s10z.60", 6, fledge_n.ssf.hr.s10z)
-fledge_n.ssf.hr <- join_ssf_results(fledge_n.ssf.hr, "sci.60", 7, fledge_n.ssf.hr.sci)
-fledge_n.ssf.hr <- join_ssf_results(fledge_n.ssf.hr, "sdq.30", 8, fledge_n.ssf.hr.sdq)
-fledge_n.ssf.hr <- join_ssf_results(fledge_n.ssf.hr, "sf.30", 9, fledge_n.ssf.hr.sf)
-fledge_n.ssf.hr <- join_ssf_results(fledge_n.ssf.hr, "sq.30", 10, fledge_n.ssf.hr.sq)
+# cc
+newdat <- expand.grid(cc.30.scaled = seq(-2.5, 2.75, by=0.1), Year = "2018")
+test <- predict.glm(fledge_n.ssf.hr.cc, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_fledge_cc_fit.csv"))
+# cc sq
+newdat <- expand.grid(cc.30.sq.scaled = seq(-2.5, 3, by=0.1), Year = "2018")
+test <- predict.glm(fledge_n.ssf.hr.cc.sq, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_fledge_cc-sq_fit.csv"))
+# ch
+newdat <- expand.grid(ch.30.scaled = seq(-2.55, 2.15, by=0.1), Year = "2018")
+test <- predict.glm(fledge_n.ssf.hr.ch, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_fledge_ch_fit.csv"))
+# sci
+newdat <- expand.grid(ch.30.sq.scaled = seq(-2.6, 2.65, by=0.1), Year = "2018")
+test <- predict.glm(fledge_n.ssf.hr.ch.sq, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_fledge_ch-sq_fit.csv"))
+# lfd
+newdat <- expand.grid(lfd.120.scaled = seq(-2.4, 2.35, by=0.1), Year = "2018")
+test <- predict.glm(fledge_n.ssf.hr.lfd, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_fledge_lfd_fit.csv"))
+# s10z
+newdat <- expand.grid(s10z.60.scaled = seq(-2.7, 3.15, by=0.1), Year = "2018")
+test <- predict.glm(fledge_n.ssf.hr.s10z, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_fledge_s10z_fit.csv"))
+# sci
+newdat <- expand.grid(sci.60.scaled = seq(-2.25, 2, by=0.1), Year = "2018")
+test <- predict.glm(fledge_n.ssf.hr.sci, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_fledge_sci_fit.csv"))
+# sdq
+newdat <- expand.grid(sdq.30.scaled = seq(-3.15, 2.95, by=0.1), Year = "2018")
+test <- predict.glm(fledge_n.ssf.hr.sdq, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_fledge_sdq_fit.csv"))
+# sf
+newdat <- expand.grid(sf.30.scaled = seq(-1.9, 2.4, by=0.1), Year = "2018")
+test <- predict.glm(fledge_n.ssf.hr.sf, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_fledge_sf_fit.csv"))
+# sq
+newdat <- expand.grid(sq.30.scaled = seq(-2.8, 2.85, by=0.1), Year = "2018")
+test <- predict.glm(fledge_n.ssf.hr.sq, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-hr_fledge_sq_fit.csv"))
+```
 
-fledge_n.ssf.hr <- fledge_n.ssf.hr %>%
-  mutate(P.fdr = p.adjust(P.base, method = "fdr"))
+#### results long format
+```{r}
+fledge_n.ssf.hr <- read_csv(here("Data", "results", "fledge_n_ssf-hr.csv"))
 
-# results out
-write_csv(fledge_n.ssf.hr, here("results", "fledge_n_ssf-hr.csv"))
+fledge_n.ssf.hr.results <- rbind(tidy(fledge_n.ssf.hr.cc) %>% mutate("Habitat variable" = "Canopy cover"),
+                          tidy(fledge_n.ssf.hr.cc.sq)%>% mutate("Habitat variable" = "Canopy cover ^2"),
+                          tidy(fledge_n.ssf.hr.ch) %>% mutate("Habitat variable" = "Canopy height"),
+                          tidy(fledge_n.ssf.hr.ch.sq) %>% mutate("Habitat variable" = "Canopy height ^2"),
+                          tidy(fledge_n.ssf.hr.lfd) %>% mutate("Habitat variable" = "Ladder fuel density"),
+                          tidy(fledge_n.ssf.hr.s10z) %>% mutate("Habitat variable" = "Contiguity"),
+                          tidy(fledge_n.ssf.hr.sci) %>% mutate("Habitat variable" = "Isolation"),
+                          tidy(fledge_n.ssf.hr.sdq) %>% mutate("Habitat variable" = "Spatial roughness"),
+                          tidy(fledge_n.ssf.hr.sf) %>% mutate("Habitat variable" = "Surface fuels"),
+                          tidy(fledge_n.ssf.hr.sq) %>% mutate("Habitat variable" = "Non-spatial roughness")) %>%
+  left_join(fledge_n.ssf.hr, by = c("term" = "Metric")) %>%
+  mutate(term = str_remove(term, ".scaled")) %>%
+  mutate(term = recode_factor(term, "Year2017" = "2017 intercept",
+                              "Year2018" = "2018 intercept",
+                              "cc.30" = "Canopy cover within 30 m",
+                              "cc.30.sq" = "Canopy cover within 30 m ^2",
+                              "ch.30" =  "Canopy height within 30 m",
+                              "ch.30.sq" = "Canopy height within 30 m ^2",
+                              "lfd.120" = "Ladder fuel density within 120 m",
+                              "s10z.60" = "Contiguity within 60 m",
+                              "sci.60" = "Isolation within 60 m",
+                              "sdq.30" = "Spatial roughness within 30 m",
+                              "sf.30" = "Surface fuels within 30 m",
+                              "sq.30" = "Non-spatial roughness within 30 m")) %>%
+  select(`Habitat variable`, term, estimate, std.error, p.value, P.fdr) %>%
+  rename(Term = term, Estimate = estimate, `Std. Error` = std.error, `Base p-value` = p.value, `FDR adjusted p-value` = P.fdr) %>%
+  mutate(across(where(is.numeric), round, 3))
+
+write_csv(fledge_n.ssf.hr.results, here("Data", "results", "fledge_ssf-hr_long.txt"))
 ```
 
 ### minute-by-minute SSF
 #### models
 ```{r}
-fledge_n.ssf.min.cc <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + cc.60.scaled, family = "gaussian", data = ssf.min.data.f)
-summary(fledge_n.ssf.min.cc)
+fledge_n.ssf.min <- ssf.min.data.f %>%
+  pivot_longer(cols = cc.60.scaled:sq.30.scaled,
+               names_to = "Metric",
+               values_to = "value") %>%
+  nest(.by = Metric) %>%
+  mutate(model = map(data, ~glm(n_fledglings ~ Year -1 + value, data = .x))) %>%
+  mutate(coef = map(model, tidy)) %>% 
+  unnest(cols = c(coef)) %>%
+  select(-data, -model) %>%
+  pivot_wider(names_from = term, values_from = c(estimate, std.error, statistic, p.value), names_glue = "{term}_{.value}") %>%
+  select(Metric, Year2019_estimate, Year2020_estimate, value_estimate, value_std.error, value_statistic, value_p.value) %>%
+  rename("Year2019" = Year2019_estimate, "Year2020" = Year2020_estimate, "Est." = value_estimate, "Std.Err" = value_std.error, "P.base" = value_p.value)
 
-fledge_n.ssf.min.cc.sq <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + cc.60.sq.scaled, family = "gaussian", data = ssf.min.data.f)
-summary(fledge_n.ssf.min.cc.sq)
-
-fledge_n.ssf.min.ch <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + ch.60.scaled, family = "gaussian", data = ssf.min.data.f)
-summary(fledge_n.ssf.min.cc)
-
-fledge_n.ssf.min.ch.sq <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + ch.60.sq.scaled, family = "gaussian", data = ssf.min.data.f)
-summary(fledge_n.ssf.min.ch.sq)
-
-fledge_n.ssf.min.lfd <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + lfd.300.scaled, family = "gaussian", data = ssf.min.data.f)
-summary(fledge_n.ssf.min.lfd)  
-
-fledge_n.ssf.min.s10z <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + s10z.60.scaled, family = "gaussian", data = ssf.min.data.f)
-summary(fledge_n.ssf.min.s10z)  
-
-fledge_n.ssf.min.sci <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sci.60.scaled, family = "gaussian", data = ssf.min.data.f)
-summary(fledge_n.ssf.min.sci)
-
-fledge_n.ssf.min.sdq <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sdq.30.scaled, family = "gaussian", data = ssf.min.data.f)
-summary(fledge_n.ssf.min.sdq)
-
-fledge_n.ssf.min.sf <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sf.60.scaled, family = "gaussian", data = ssf.min.data.f)
-summary(fledge_n.ssf.min.sf)
-
-fledge_n.ssf.min.sq <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sq.30.scaled, family = "gaussian", data = ssf.min.data.f)
-summary(fledge_n.ssf.min.sq)  
-```
-
-#### results short format
-```{r}
-fledge_n.ssf.min <- tibble(T.scale = rep("SSF_min", 10), Repro = rep("fledge_n", 10), Metric = rep(NA, 10), Year1 = rep(NA, 10), Year2 = rep(NA, 10), Total.PPT = rep(NA, 10), Total.PPT.Std.Err = rep(NA, 10), Total.PPT.P = rep(NA, 10), Mean.Temp = rep(NA, 10), Mean.Temp.Std.Err = rep(NA, 10), Mean.Temp.P = rep(NA, 10), Nest.Topo = rep(NA, 10), Nest.Topo.Std.Err = rep(NA, 10), Nest.Topo.P = rep(NA, 10), Est = rep(NA, 10), Std.Err = rep(NA, 10), P.base = rep(NA, 10))
-
-fledge_n.ssf.min <- join_ssf_results(fledge_n.ssf.min, "cc.60", 1, fledge_n.ssf.min.cc)
-fledge_n.ssf.min <- join_ssf_results(fledge_n.ssf.min, "cc.60.sq", 2, fledge_n.ssf.min.cc.sq)
-fledge_n.ssf.min <- join_ssf_results(fledge_n.ssf.min, "ch.60", 3, fledge_n.ssf.min.ch)
-fledge_n.ssf.min <- join_ssf_results(fledge_n.ssf.min, "ch.60.sq", 4, fledge_n.ssf.min.ch.sq)
-fledge_n.ssf.min <- join_ssf_results(fledge_n.ssf.min, "lfd.300", 5, fledge_n.ssf.min.lfd)
-fledge_n.ssf.min <- join_ssf_results(fledge_n.ssf.min, "s10z.60", 6, fledge_n.ssf.min.s10z)
-fledge_n.ssf.min <- join_ssf_results(fledge_n.ssf.min, "sci.60", 7, fledge_n.ssf.min.sci)
-fledge_n.ssf.min <- join_ssf_results(fledge_n.ssf.min, "sdq.30", 8, fledge_n.ssf.min.sdq)
-fledge_n.ssf.min <- join_ssf_results(fledge_n.ssf.min, "sf.60", 9, fledge_n.ssf.min.sf)
-fledge_n.ssf.min <- join_ssf_results(fledge_n.ssf.min, "sq.30", 10, fledge_n.ssf.min.sq)
-
-# adjustment
 fledge_n.ssf.min$P.base
 fledge_n.ssf.min$P.fdr <- p.adjust(fledge_n.ssf.min$P.base, method = "fdr")
-fledge_n.ssf.min$P.fdr  
+fledge_n.ssf.min$P.fdr 
 
-# save results
-write_csv(fledge_n.ssf.min, here("results", "fledge_n_ssf-min.csv"))
+# writing results
+write_csv(fledge_n.ssf.min, here("Data", "results", "fledge_n_ssf-min.csv"))
+```
+
+#### curve plotting data
+```{r}
+# individual models
+fledge_n.ssf.min.cc <- glm(n_fledglings ~ Year -1 + cc.60.scaled, family = "gaussian", data = ssf.min.data.f)
+fledge_n.ssf.min.cc.sq <- glm(n_fledglings ~ Year -1 + cc.60.sq.scaled, family = "gaussian", data = ssf.min.data.f)
+fledge_n.ssf.min.ch <- glm(n_fledglings ~ Year -1 + ch.60.scaled, family = "gaussian", data = ssf.min.data.f)
+fledge_n.ssf.min.ch.sq <- glm(n_fledglings ~ Year -1 + ch.60.sq.scaled, family = "gaussian", data = ssf.min.data.f)
+fledge_n.ssf.min.lfd <- glm(n_fledglings ~ Year -1 + lfd.300.scaled, family = "gaussian", data = ssf.min.data.f)
+fledge_n.ssf.min.s10z <- glm(n_fledglings ~ Year -1 + s10z.60.scaled, family = "gaussian", data = ssf.min.data.f)
+fledge_n.ssf.min.sci <- glm(n_fledglings ~ Year -1  + sci.60.scaled, family = "gaussian", data = ssf.min.data.f)
+fledge_n.ssf.min.sdq <- glm(n_fledglings ~ Year -1 + sdq.30.scaled, family = "gaussian", data = ssf.min.data.f)
+fledge_n.ssf.min.sf <- glm(n_fledglings ~ Year -1 + sf.60.scaled, family = "gaussian", data = ssf.min.data.f)
+fledge_n.ssf.min.sq <- glm(n_fledglings ~ Year -1 + sq.30.scaled, family = "gaussian", data = ssf.min.data.f)
+
+# cc
+newdat <- expand.grid(cc.60.scaled = seq(-2, 2.5, by=0.1), Year = "2019")
+test <- predict.glm(fledge_n.ssf.min.cc, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_fledge_cc_fit.csv"))
+# cc sq
+newdat <- expand.grid(cc.60.sq.scaled = seq(-2.5, 3, by=0.1), Year = "2019")
+test <- predict.glm(fledge_n.ssf.min.cc.sq, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_fledge_cc-sq_fit.csv"))
+# ch
+newdat <- expand.grid(ch.60.scaled = seq(-2.2, 2.3, by=0.1), Year = "2019")
+test <- predict.glm(fledge_n.ssf.min.ch, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_fledge_ch_fit.csv"))
+# ch-sq
+newdat <- expand.grid(ch.60.sq.scaled = seq(-1.75, 2.65, by=0.1), Year = "2019")
+test <- predict.glm(fledge_n.ssf.min.ch.sq, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_fledge_ch-sq_fit.csv"))
+# lfd
+newdat <- expand.grid(lfd.300.scaled = seq(-2.9, 1.8, by=0.1), Year = "2019")
+test <- predict.glm(fledge_n.ssf.min.lfd, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_fledge_lfd_fit.csv"))
+# s10z
+newdat <- expand.grid(s10z.60.scaled = seq(-1.85, 2.75, by=0.1), Year = "2019")
+test <- predict.glm(fledge_n.ssf.min.s10z, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_fledge_s10z_fit.csv"))
+# sci
+newdat <- expand.grid(sci.60.scaled = seq(-2.25, 1.75, by=0.1), Year = "2019")
+test <- predict.glm(fledge_n.ssf.min.sci, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_fledge_sci_fit.csv"))
+# sdq
+newdat <- expand.grid(sdq.30.scaled = seq(-2.95, 2.05, by=0.1), Year = "2019")
+test <- predict.glm(fledge_n.ssf.min.sdq, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_fledge_sdq_fit.csv"))
+# sf
+newdat <- expand.grid(sf.60.scaled = seq(-3.45, 1.95, by=0.1), Year = "2019")
+test <- predict.glm(fledge_n.ssf.min.sf, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_fledge_sf_fit.csv"))
+# sq
+newdat <- expand.grid(sq.30.scaled = seq(-3.65, 1.75, by=0.1), Year = "2019")
+test <- predict.glm(fledge_n.ssf.min.sq, newdat, se.fit = T) 
+newdat$n_fledglings <- unlist(test$fit)
+newdat$se.fit <- unlist(test$se.fit)
+newdat$lb <- newdat$n_fledglings-1.96*sqrt(newdat$se.fit)
+newdat$ub <- newdat$n_fledglings+1.96*sqrt(newdat$se.fit) 
+write_csv(newdat, here("Data", "output_data", "ssf-min_fledge_sq_fit.csv"))
+```
+
+#### results long format
+```{r}
+fledge_n.ssf.min <- read_csv(here("Data", "results", "fledge_n_ssf-min.csv"))
+
+fledge_n.ssf.min.results <- rbind(tidy(fledge_n.ssf.min.cc) %>% mutate("Habitat variable" = "Canopy cover"),
+                          tidy(fledge_n.ssf.min.cc.sq)%>% mutate("Habitat variable" = "Canopy cover ^2"),
+                          tidy(fledge_n.ssf.min.ch) %>% mutate("Habitat variable" = "Canopy height"),
+                          tidy(fledge_n.ssf.min.ch.sq) %>% mutate("Habitat variable" = "Canopy height ^2"),
+                          tidy(fledge_n.ssf.min.lfd) %>% mutate("Habitat variable" = "Ladder fuel density"),
+                          tidy(fledge_n.ssf.min.s10z) %>% mutate("Habitat variable" = "Contiguity"),
+                          tidy(fledge_n.ssf.min.sci) %>% mutate("Habitat variable" = "Isolation"),
+                          tidy(fledge_n.ssf.min.sdq) %>% mutate("Habitat variable" = "Spatial roughness"),
+                          tidy(fledge_n.ssf.min.sf) %>% mutate("Habitat variable" = "Surface fuels"),
+                          tidy(fledge_n.ssf.min.sq) %>% mutate("Habitat variable" = "Non-spatial roughness")) %>%
+  left_join(fledge_n.ssf.min, by = c("term" = "Metric")) %>%
+  mutate(term = str_remove(term, ".scaled")) %>%
+  mutate(term = recode_factor(term, "Year2019" = "2019 intercept",
+                              "Year2020" = "2020 intercept",
+                              "cc.60" = "Canopy cover within 60 m",
+                              "cc.60.sq" = "Canopy cover within 60 m ^2",
+                              "ch.60" =  "Canopy height within 60 m",
+                              "ch.60.sq" = "Canopy height within 60 m ^2",
+                              "lfd.300" = "Ladder fuel density within 300 m",
+                              "s10z.60" = "Contiguity within 60 m",
+                              "sci.60" = "Isolation within 60 m",
+                              "sdq.30" = "Spatial roughness within 30 m",
+                              "sf.60" = "Surface fuels within 60 m",
+                              "sq.30" = "Non-spatial roughness within 30 m")) %>%
+  select(`Habitat variable`, term, estimate, std.error, p.value, P.fdr) %>%
+  rename(Term = term, Estimate = estimate, `Std. Error` = std.error, `Base p-value` = p.value, `FDR adjusted p-value` = P.fdr) %>%
+  mutate(across(where(is.numeric), round, 3))
+
+write_csv(fledge_n.ssf.min.results, here("Data", "results", "fledge_ssf-min_long.txt"))
 ```
 
 ## Poisson models
+- rsf output is the same 
+- hourly ssf output is exactly the same as for normal
+- so is mxm, wild
+- either i am doing something wrong or my results are 2x sturdy
 
 ### rsf
-
-#### models + short format results
+- only 6 data points! 
+- not overdispersed
+#### collinearity visual checks
+- ppt with sf, sci, ch^2, cc
+- tmean with lfd, s10z, sdq, sq
+- nest sdq with cc^2, ch^2, sci
+- ppt and nest sdq also correlated, i'd prioritize ppt
 ```{r}
 fledge_p.rsf <- tibble(T.scale = rep("RSF", 10), Repro = rep("fledge", 10), Metric = rep(NA, 10), Intercept = rep(NA, 10), Total.PPT = rep(NA, 10), Mean.Temp = rep(NA, 10), Nest.Topo = rep(NA, 10), Est = rep(NA, 10), Std.Err = rep(NA, 10), P.base = rep(NA, 10))
 
@@ -451,13 +635,14 @@ fledge_p.rsf$P.base[10] <- coef(summary(fledge_p.rsf.sq))[3,4]
 
 fledge_p.rsf$P.base
 fledge_p.rsf$P.fdr <- p.adjust(fledge_p.rsf$P.base, method = "fdr")
-fledge_p.rsf$P.fdr # nothing 
+fledge_p.rsf$P.fdr # nothing useful
 
 # writing results
-write_csv(fledge_p.rsf, here("results", "fledge_p_rsf.csv"))
+write_csv(fledge_p.rsf, here("Data", "results", "fledge_p_rsf.csv"))
 ```
 
 ### hourly ssf
+- overdispersed: should do zinlf poisson
 ```{r}
 fledge_p.ssf.hr <- tibble(T.scale = rep("SSF_hr", 10), Repro = rep("fledge", 10), Metric = rep(NA, 10), Year1 = rep(NA, 10), Year2 = rep(NA, 10), Total.PPT = rep(NA, 10), Total.PPT.Std.Err = rep(NA, 10), Total.PPT.P = rep(NA, 10), Mean.Temp = rep(NA, 10), Mean.Temp.Std.Err = rep(NA, 10), Mean.Temp.P = rep(NA, 10), Nest.Topo = rep(NA, 10), Nest.Topo.Std.Err = rep(NA, 10), Nest.Topo.P = rep(NA, 10), Est = rep(NA, 10), Std.Err = rep(NA, 10), P.base = rep(NA, 10), P.fdr = rep(NA, 10))
 
@@ -490,7 +675,7 @@ summary(fledge_p.ssf.hr.sci)
 fledge_p.ssf.hr <- join_ssf_results(fledge_p.ssf.hr, "sci.60", 7, fledge_p.ssf.hr.sci)
 
 fledge_p.ssf.hr.sdq <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sdq.30.scaled, family = "poisson", data = ssf.hr.data.f)
-summary(fledge_p.ssf.hr.sdq) 
+summary(fledge_p.ssf.hr.sdq) # lower p-value than many! 
 fledge_p.ssf.hr <- join_ssf_results(fledge_p.ssf.hr, "sdq.30", 8, fledge_p.ssf.hr.sdq)
 
 fledge_p.ssf.hr.sf <- glm(n_fledglings ~ Year -1 + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + sf.30.scaled, family = "poisson", data = ssf.hr.data.f)
@@ -506,7 +691,7 @@ fledge_p.ssf.hr$P.fdr <- p.adjust(fledge_p.ssf.hr$P.base, method = "fdr")
 fledge_p.ssf.hr$P.fdr
 
 # results out
-write_csv(fledge_p.ssf.hr, here("results", "fledge_p_ssf-hr.csv"))
+write_csv(fledge_p.ssf.hr, here("Data", "results", "fledge_p_ssf-hr.csv"))
 ```
 
 ### minute-by-minute SSF
@@ -555,18 +740,22 @@ fledge_p.ssf.min <- join_ssf_results(fledge_p.ssf.min, "sq.30", 10, fledge_p.ssf
 
 fledge_p.ssf.min$P.base
 fledge_p.ssf.min$P.fdr <- p.adjust(fledge_p.ssf.min$P.base, method = "fdr")
-fledge_p.ssf.min$P.fdr 
+fledge_p.ssf.min$P.fdr # nothing should be considered even marginally significant
 
 # save results
-write_csv(fledge_p.ssf.min, here("results", "fledge_p_ssf-min.csv"))
+write_csv(fledge_p.ssf.min, here("Data", "results", "fledge_p_ssf-min.csv"))
 ```
 
 
 ## Ordinal logistic models
 
 ### rsf
-
-#### models + saving data
+- only 6 data points! 
+#### collinearity visual checks
+- ppt with sf, sci, ch^2, cc
+- tmean with lfd, s10z, sdq, sq
+- nest sdq with cc^2, ch^2, sci
+- ppt and nest sdq also correlated, i'd prioritize ppt
 ```{r}
 fledge_o.rsf.cc <- polr(n_fledglings2 ~ tmean.mean.scaled + nest.sdq.scaled + cc.60.scaled, data = rsf.data.f)
 summary(fledge_o.rsf.cc) # fitted rates numerically 0
@@ -682,13 +871,13 @@ fledge_o.rsf <- fledge_o.rsf %>%
   select(metric, Total.PPT, Mean.Temp, Nest.Topo, zero.one.int, one.two.int, Est, Std.Err, P.base, P.fdr)
 
 # writing results
-write_csv(fledge_o.rsf, here("results", "fledge_o_rsf.csv"))
+write_csv(fledge_o.rsf, here("Data", "results", "fledge_o_rsf.csv"))
 ```
 
-### hourly ssf models + saving results
+### hourly ssf
 ```{r}
 fledge_o.ssf.hr.cc <- polr(n_fledglings2 ~ Year + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + cc.30.scaled, method = "logistic", data = ssf.hr.data.f)
-summary(fledge_o.ssf.hr.cc)  
+summary(fledge_o.ssf.hr.cc) # always refits to get hessian?
 test <- coef(summary(fledge_o.ssf.hr.cc)) %>%
   as.data.frame() %>%
   rownames_to_column() %>%
@@ -783,10 +972,10 @@ fledge_o.ssf.hr <- fledge_o.ssf.hr %>%
   select(metric, Year2018, Total.PPT, Mean.Temp, Nest.Topo, zero.one.int, one.two.int, Est, Std.Err, P.base, P.fdr)
 
 # results out
-write_csv(fledge_o.ssf.hr, here("results", "fledge_o_ssf-hr.csv"))
+write_csv(fledge_o.ssf.hr, here("Data", "results", "fledge_o_ssf-hr.csv"))
 ```
 
-### minute-by-minute SSF models + saving results
+### minute-by-minute SSF
 ```{r}
 fledge_o.ssf.min.cc <- polr(n_fledglings2 ~ Year + ppt.total.scaled + tmean.mean.scaled + nest.sdq.scaled + cc.60.scaled, method = "logistic", data = ssf.min.data.f)
 summary(fledge_o.ssf.min.cc)
@@ -884,6 +1073,7 @@ fledge_o.ssf.min <- fledge_o.ssf.min %>%
   select(metric, Year2020, Total.PPT, Mean.Temp, Nest.Topo, zero.one.int, one.two.int, Est, Std.Err, P.base, P.fdr)
 
 # save results
-write_csv(fledge_o.ssf.min, here("results", "fledge_o_ssf-min.csv"))
+write_csv(fledge_o.ssf.min, here("Data", "results", "fledge_o_ssf-min.csv"))
 ```
+
 
